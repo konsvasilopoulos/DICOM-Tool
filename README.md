@@ -13,11 +13,11 @@ A lightweight, open-source web application built with Python and Streamlit, desi
   * Displays Modality, Matrix Dimensions, Pixel Spacing, Manufacturer, and specific metadata (e.g., Dose Grid Scaling for RT Dose files).
 
 ---
-🛡️ Privacy & Security
-All processing is performed locally in your session environment. No patient health information (PHI) is transmitted, stored, or shared externally.
+* **🛡️ Privacy & Security:**
+* All processing is performed locally in your session environment. No patient health information (PHI) is transmitted, stored, or shared externally.
 
-📄 License
-This project is open-source and available under the MIT License.
+* **📄 License**
+* This project is open-source and available under the MIT License.
 
 ## 🛠️ Tech Stack
 
