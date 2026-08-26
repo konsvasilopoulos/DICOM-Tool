@@ -25,3 +25,10 @@ A lightweight, open-source web application built with Python and Streamlit, desi
 * **Streamlit** (Web user interface)
 * **Pydicom** (DICOM file parsing and manipulation)
 * **Pandas** (Data structuring and tabular display)
+
+## Installation & Execution
+*Download and extract the zip file
+*Install the required dependencies :
+pip install -r requirements.txt
+* Launch the web app in your terminal :
+streamlit run app.py
