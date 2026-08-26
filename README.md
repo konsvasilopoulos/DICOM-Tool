@@ -27,8 +27,8 @@ A lightweight, open-source web application built with Python and Streamlit, desi
 * **Pandas** (Data structuring and tabular display)
 
 ## Installation & Execution
-*Download and extract the zip file
-*Install the required dependencies :
-pip install -r requirements.txt
+* Download and extract the zip file
+* Install the required dependencies :
+**pip install -r requirements.txt
 * Launch the web app in your terminal :
-streamlit run app.py
+**streamlit run app.py
