@@ -20,10 +20,9 @@ A lightweight, open-source web application designed for medical physicists and r
 adjust, and securely anonymize DICOM files locally, ensuring modality-aware processing.
 """)
 
-# Generator for Demo CT Scan
 def generate_demo_ct():
     file_meta = pydicom.dataset.FileMetaDataset()
-    file_meta.MediaStorageSOPClassUID = pydicom.uid.UID('1.2.840.10008.5.1.4.1.1.2') # CT Image Storage
+    file_meta.MediaStorageSOPClassUID = pydicom.uid.UID('1.2.840.10008.5.1.4.1.1.2') 
     file_meta.MediaStorageSOPInstanceUID = pydicom.uid.generate_uid()
     file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
 
@@ -44,7 +43,6 @@ def generate_demo_ct():
     ds.RescaleIntercept = 0.0
     ds.RescaleSlope = 1.0
     
-    # Fake CT image array (Hounsfield units: air ~ -1000, object ~ 400)
     y, x = np.ogrid[:512, :512]
     mask = (x - 256)**2 + (y - 256)**2 <= 100**2
     img_array = np.zeros((512, 512), dtype=np.int16) - 1000
@@ -58,10 +56,9 @@ def generate_demo_ct():
     out_bytes.seek(0)
     return out_bytes.getvalue()
 
-# Generator for Demo Radiography (DX)
 def generate_demo_dx():
     file_meta = pydicom.dataset.FileMetaDataset()
-    file_meta.MediaStorageSOPClassUID = pydicom.uid.UID('1.2.840.10008.5.1.4.1.1.1') # Digital X-Ray Image Storage
+    file_meta.MediaStorageSOPClassUID = pydicom.uid.UID('1.2.840.10008.5.1.4.1.1.1') 
     file_meta.MediaStorageSOPInstanceUID = pydicom.uid.generate_uid()
     file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
 
@@ -79,10 +76,8 @@ def generate_demo_dx():
     ds.PixelSpacing = [0.15, 0.15]
     ds.InstitutionName = "UNIVERSITY HOSPITAL"
     
-    # Fake X-Ray gradient/bone structure simulation
     y, x = np.ogrid[:512, :512]
-    img_array = np.linspace(100, 3000, 512, dtype=np.uint16) # background gradient
-    # Add fake anatomical density (ribs/spine imitation)
+    img_array = np.linspace(100, 3000, 512, dtype=np.uint16)
     rib_mask = np.sin(x / 20.0) * np.cos(y / 30.0) * 500 + 1500
     img_array = np.clip(rib_mask, 0, 4095).astype(np.uint16)
     ds.PixelData = img_array.tobytes()
@@ -100,7 +95,6 @@ with tab1:
     st.header("Batch DICOM Anonymizer")
     st.markdown("Upload a **ZIP archive** containing your DICOM files, or generate demo datasets to test the tool instantly.")
 
-    # Demo generators expansion
     with st.expander("🧪 Don't have DICOM files? Generate Test Data"):
         col_d1, col_d2 = st.columns(2)
         with col_d1:
@@ -139,13 +133,15 @@ with tab1:
     uploaded_zip = st.file_uploader("Upload DICOM ZIP Archive", type=["zip"], key="anon_zip")
 
     st.subheader("Anonymization Settings")
-    replacement_id = st.text_input("Replacement ID / Patient Name", value="ANON_PATIENT")
-    remove_dates = st.checkbox("Remove Birth Dates & Study Dates", value=True)
+    base_replacement_id = st.text_input("Base Prefix for Anonymized ID", value="ANON_PATIENT")
+    remove_dates = st.checkbox("Remove Birth Dates & Study Dates*", value=True)
+    st.markdown("<small>* **Checked:** Erases Patient Birth Date & Study Date for strict privacy. \n* **Unchecked:** Keeps original dates intact as found in the raw DICOM headers.</small>", unsafe_allow_html=True)
 
     if uploaded_zip is not None:
         if st.button("Run Anonymization"):
             try:
                 zip_buffer = io.BytesIO()
+                counter = 1
                 with zipfile.ZipFile(uploaded_zip, 'r') as zip_in:
                     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_out:
                         for filename in zip_in.namelist():
@@ -153,24 +149,30 @@ with tab1:
                                 file_content = zip_in.read(filename)
                                 try:
                                     ds = pydicom.dcmread(io.BytesIO(file_content))
-                                    ds.PatientName = replacement_id
-                                    ds.PatientID = replacement_id
+                                    
+                                    # Αυτόματος αύξων αριθμός ανά αρχείο (π.χ. ANON_PATIENT_001)
+                                    current_id = f"{base_replacement_id}_{counter:03d}"
+                                    ds.PatientName = current_id
+                                    ds.PatientID = current_id
+                                    
                                     if remove_dates:
                                         if 'PatientBirthDate' in ds:
                                             ds.PatientBirthDate = ""
                                         if 'StudyDate' in ds:
                                             ds.StudyDate = ""
+                                    
                                     if 'InstitutionName' in ds:
                                         ds.InstitutionName = "REDACTED_CLINIC"
 
                                     out_bytes = io.BytesIO()
                                     ds.save_as(out_bytes)
                                     zip_out.writestr(filename, out_bytes.getvalue())
+                                    counter += 1
                                 except Exception:
                                     zip_out.writestr(filename, file_content)
                 
                 zip_buffer.seek(0)
-                st.success("Anonymization completed successfully!")
+                st.success(f"Anonymization completed successfully! Processed {counter - 1} DICOM files with sequential IDs.")
                 
                 st.download_button(
                     label="📥 Download Anonymized ZIP",
