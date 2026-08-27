@@ -7,6 +7,7 @@ import pandas as pd
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 st.set_page_config(
     page_title="MedPhys DICOM Toolkit",
@@ -25,7 +26,7 @@ with st.sidebar:
     st.markdown("**Developer / Creator:**")
     st.markdown("👨‍💻 **Konstantinos G. Vasilopoulos**")
     st.markdown("*Medical Physicist & Researcher*")
-    st.markdown("✉️ **Email:** kostasvasilopoulosgr@yahoo.com")
+    st.markdown("✉️ **Email:** `kostasvasilopoulosgr@yahoo.com`")
     st.divider()
 
 # --- MAIN PAGE ---
@@ -230,26 +231,87 @@ with tab2:
                         unit_label = "Intensity"
                     
                     min_val, max_val = float(img_data.min()), float(img_data.max())
-                    default_center = float(np.mean(img_data))
-                    default_width = float(max(1.0, max_val - min_val))
+                    
+                    # Window Presets
+                    preset = st.selectbox("Window Presets", ["Custom", "Soft Tissue (C:40, W:400)", "Bone (C:400, W:1500)", "Lung (C:-600, W:1500)", "Brain (C:40, W:80)"])
+                    
+                    if preset == "Soft Tissue (C:40, W:400)":
+                        default_center, default_width = 40.0, 400.0
+                    elif preset == "Bone (C:400, W:1500)":
+                        default_center, default_width = 400.0, 1500.0
+                    elif preset == "Lung (C:-600, W:1500)":
+                        default_center, default_width = -600.0, 1500.0
+                    elif preset == "Brain (C:40, W:80)":
+                        default_center, default_width = 40.0, 80.0
+                    else:
+                        default_center = float(np.mean(img_data))
+                        default_width = float(max(1.0, max_val - min_val))
                     
                     c1, c2 = st.columns(2)
                     with c1:
-                        wc = st.slider(f"Window Center ({unit_label})", min_value=min_val, max_value=max_val, value=default_center)
+                        wc = st.slider(f"Window Center ({unit_label})", min_value=min_val, max_value=max_val, value=float(np.clip(default_center, min_val, max_val)))
                     with c2:
-                        ww = st.slider(f"Window Width ({unit_label})", min_value=1.0, max_value=max(10.0, max_val - min_val), value=default_width)
+                        ww = st.slider(f"Window Width ({unit_label})", min_value=1.0, max_value=max(10.0, max_val - min_val), value=float(default_width))
                     
                     vmin = wc - ww / 2
                     vmax = wc + ww / 2
                     
+                    # Plotting Image & ROI Overlay
                     fig, ax = plt.subplots(figsize=(4.5, 4.5))
-                    ax.imshow(img_data, cmap=plt.cm.bone, vmin=vmin, vmax=vmax)
+                    im = ax.imshow(img_data, cmap=plt.cm.bone, vmin=vmin, vmax=vmax)
                     ax.axis('off')
+                    
+                    # ROI Controls & Calculations
+                    st.markdown("---")
+                    st.subheader("🎯 Region of Interest (ROI) Analysis")
+                    roi_shape = st.radio("ROI Shape", ["Square", "Circle"], horizontal=True)
+                    
+                    img_h, img_w = img_data.shape
+                    cy, cx = img_h // 2, img_w // 2
+                    max_dim = min(img_h, img_w) // 2
+                    
+                    roi_pixels = np.array([])
+                    if roi_shape == "Square":
+                        rw = st.slider("Square Width (px)", min_value=5, max_value=max_dim*2, value=min(50, max_dim))
+                        rh = st.slider("Square Height (px)", min_value=5, max_value=max_dim*2, value=min(50, max_dim))
+                        x1, x2 = max(0, cx - rw//2), min(img_w, cx + rw//2)
+                        y1, y2 = max(0, cy - rh//2), min(img_h, cy + rh//2)
+                        roi_pixels = img_data[y1:y2, x1:x2]
+                        
+                        rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=1.5, edgecolor='red', facecolor='none')
+                        ax.add_patch(rect)
+                    else:
+                        radius = st.slider("Circle Radius (px)", min_value=5, max_value=max_dim, value=min(25, max_dim))
+                        y, x = np.ogrid[:img_h, :img_w]
+                        mask = (x - cx)**2 + (y - cy)**2 <= radius**2
+                        roi_pixels = img_data[mask]
+                        
+                        circle = patches.Circle((cx, cy), radius, linewidth=1.5, edgecolor='red', facecolor='none')
+                        ax.add_patch(circle)
+                    
                     st.pyplot(fig)
                     
-                    with st.expander("📊 Pixel Statistics & Histogram"):
-                        st.write(f"- **Mean Value:** {np.mean(img_data):.2f} {unit_label}")
-                        st.write(f"- **Standard Deviation:** {np.std(img_data):.2f}")
+                    # PNG Download Button
+                    img_buf = io.BytesIO()
+                    fig.savefig(img_buf, format="png", bbox_inches='tight', dpi=150)
+                    img_buf.seek(0)
+                    st.download_button("📥 Download Preview as PNG", img_buf, file_name="dicom_preview.png", mime="image/png")
+                    
+                    # ROI Statistics Output
+                    if roi_pixels.size > 0:
+                        with st.expander("📌 ROI Statistics Results", expanded=True):
+                            r_mean = np.mean(roi_pixels)
+                            r_std = np.std(roi_pixels)
+                            r_min = np.min(roi_pixels)
+                            r_max = np.max(roi_pixels)
+                            st.write(f"- **ROI Mean:** {r_mean:.2f} {unit_label}")
+                            st.write(f"- **ROI Noise (StdDev):** {r_std:.2f} {unit_label}")
+                            st.write(f"- **ROI Min Value:** {r_min:.1f} {unit_label}")
+                            st.write(f"- **ROI Max Value:** {r_max:.1f} {unit_label}")
+                    
+                    with st.expander("📊 Full Image Statistics & Histogram"):
+                        st.write(f"- **Image Mean:** {np.mean(img_data):.2f} {unit_label}")
+                        st.write(f"- **Image StdDev:** {np.std(img_data):.2f}")
                         st.write(f"- **Min / Max:** {min_val:.1f} / {max_val:.1f} {unit_label}")
                         
                         fig_hist, ax_hist = plt.subplots(figsize=(5, 2.5))
@@ -366,4 +428,4 @@ with tab3:
 
 # --- FOOTER ---
 st.markdown("---")
-st.markdown("<p style='text-align: center; color: gray;'>Developed by <b>Konstantinos G. Vasilopoulos</b> | Contact: your_email@example.com</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: gray;'>Developed by <b>Konstantinos G. Vasilopoulos</b> (Medical Physicist & Researcher) | Contact: kostasvasilopoulosgr@yahoo.com</p>", unsafe_allow_html=True)
