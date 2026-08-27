@@ -17,7 +17,7 @@ st.set_page_config(
 st.title("🏥 Open-Source DICOM Toolkit for Medical Physics")
 st.markdown("""
 A lightweight, open-source web application designed for medical physicists and researchers to quickly inspect, 
-adjust, and securely anonymize DICOM files locally, ensuring modality-aware processing.
+adjust, anonymize, and batch-analyze DICOM datasets locally.
 """)
 
 def generate_demo_ct():
@@ -27,14 +27,13 @@ def generate_demo_ct():
     file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
 
     ds = FileDataset(None, {}, file_meta=file_meta, preamble=b"\0" * 128)
-    
     ds.PatientName = "DOE^JOHN"
-    ds.PatientID = "CT_DEMO_01"
+    ds.PatientID = "CT_PATIENT_001"
     ds.PatientBirthDate = "19800101"
     ds.StudyDate = datetime.datetime.now().strftime("%Y%m%d")
     ds.Modality = "CT"
-    ds.Manufacturer = "DEMO_VENDOR"
-    ds.StudyDescription = "Routine Head CT Test"
+    ds.Manufacturer = "SIEMENS_DEMO"
+    ds.StudyDescription = "Routine Head CT"
     ds.Rows = 512
     ds.Columns = 512
     ds.SliceThickness = "2.5"
@@ -63,14 +62,13 @@ def generate_demo_dx():
     file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
 
     ds = FileDataset(None, {}, file_meta=file_meta, preamble=b"\0" * 128)
-    
     ds.PatientName = "SMITH^JANE"
-    ds.PatientID = "DX_DEMO_02"
+    ds.PatientID = "DX_PATIENT_002"
     ds.PatientBirthDate = "19900515"
     ds.StudyDate = datetime.datetime.now().strftime("%Y%m%d")
     ds.Modality = "DX"
-    ds.Manufacturer = "DEMO_VENDOR"
-    ds.StudyDescription = "Chest X-Ray Test"
+    ds.Manufacturer = "PHILIPS_DEMO"
+    ds.StudyDescription = "Chest X-Ray"
     ds.Rows = 512
     ds.Columns = 512
     ds.PixelSpacing = [0.15, 0.15]
@@ -89,7 +87,7 @@ def generate_demo_dx():
     out_bytes.seek(0)
     return out_bytes.getvalue()
 
-tab1, tab2 = st.tabs(["🔒 DICOM Anonymizer", "🔍 DICOM Inspector & Diagnostic Viewer"])
+tab1, tab2, tab3 = st.tabs(["🔒 DICOM Anonymizer", "🔍 Inspector & Viewer", "📊 Batch CSV Report Generator"])
 
 with tab1:
     st.header("Batch DICOM Anonymizer")
@@ -104,15 +102,8 @@ with tab1:
                 with zipfile.ZipFile(demo_zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_out:
                     zip_out.writestr("demo_ct_scan.dcm", demo_dcm_bytes)
                 demo_zip_buffer.seek(0)
-                
                 st.success("Demo CT ZIP generated!")
-                st.download_button(
-                    label="📥 Download Demo CT ZIP",
-                    data=demo_zip_buffer,
-                    file_name="demo_ct_files.zip",
-                    mime="application/zip",
-                    key="dl_ct"
-                )
+                st.download_button("📥 Download Demo CT ZIP", demo_zip_buffer, "demo_ct_files.zip", "application/zip", key="dl_ct")
         with col_d2:
             if st.button("Generate Demo X-Ray (DX) ZIP"):
                 demo_dx_bytes = generate_demo_dx()
@@ -120,22 +111,15 @@ with tab1:
                 with zipfile.ZipFile(demo_dx_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_out:
                     zip_out.writestr("demo_dx_scan.dcm", demo_dx_bytes)
                 demo_dx_buffer.seek(0)
-                
                 st.success("Demo X-Ray ZIP generated!")
-                st.download_button(
-                    label="📥 Download Demo X-Ray ZIP",
-                    data=demo_dx_buffer,
-                    file_name="demo_dx_files.zip",
-                    mime="application/zip",
-                    key="dl_dx"
-                )
+                st.download_button("📥 Download Demo X-Ray ZIP", demo_dx_buffer, "demo_dx_files.zip", "application/zip", key="dl_dx")
 
     uploaded_zip = st.file_uploader("Upload DICOM ZIP Archive", type=["zip"], key="anon_zip")
 
     st.subheader("Anonymization Settings")
     base_replacement_id = st.text_input("Base Prefix for Anonymized ID", value="ANON_PATIENT")
     remove_dates = st.checkbox("Remove Birth Dates & Study Dates*", value=True)
-    st.markdown("<small>* **Checked:** Erases Patient Birth Date & Study Date for strict privacy. \n* **Unchecked:** Keeps original dates intact as found in the raw DICOM headers.</small>", unsafe_allow_html=True)
+    st.markdown("<small>* **Checked:** Erases Patient Birth Date & Study Date for strict privacy. \n* **Unchecked:** Keeps original dates intact as found in raw headers.</small>", unsafe_allow_html=True)
 
     if uploaded_zip is not None:
         if st.button("Run Anonymization"):
@@ -149,18 +133,14 @@ with tab1:
                                 file_content = zip_in.read(filename)
                                 try:
                                     ds = pydicom.dcmread(io.BytesIO(file_content))
-                                    
-                                    # Αυτόματος αύξων αριθμός ανά αρχείο (π.χ. ANON_PATIENT_001)
                                     current_id = f"{base_replacement_id}_{counter:03d}"
                                     ds.PatientName = current_id
                                     ds.PatientID = current_id
-                                    
                                     if remove_dates:
                                         if 'PatientBirthDate' in ds:
                                             ds.PatientBirthDate = ""
                                         if 'StudyDate' in ds:
                                             ds.StudyDate = ""
-                                    
                                     if 'InstitutionName' in ds:
                                         ds.InstitutionName = "REDACTED_CLINIC"
 
@@ -172,20 +152,14 @@ with tab1:
                                     zip_out.writestr(filename, file_content)
                 
                 zip_buffer.seek(0)
-                st.success(f"Anonymization completed successfully! Processed {counter - 1} DICOM files with sequential IDs.")
-                
-                st.download_button(
-                    label="📥 Download Anonymized ZIP",
-                    data=zip_buffer,
-                    file_name="anonymized_dicom_files.zip",
-                    mime="application/zip"
-                )
+                st.success(f"Anonymization completed successfully! Processed {counter - 1} files.")
+                st.download_button("📥 Download Anonymized ZIP", zip_buffer, "anonymized_dicom_files.zip", "application/zip")
             except Exception as e:
                 st.error(f"An error occurred during processing: {e}")
 
 with tab2:
     st.header("DICOM Inspector & Diagnostic Viewer")
-    st.markdown("Upload a single diagnostic DICOM file (CT, DX, CR, MG, etc.) or use one of the demo generators above.")
+    st.markdown("Upload a single diagnostic DICOM file (CT, DX, CR, MG, etc.) or use the demo generators.")
 
     uploaded_dcm = st.file_uploader("Upload DICOM File (.dcm)", type=["dcm", "IMA"], key="inspect_dcm")
 
@@ -220,7 +194,6 @@ with tab2:
                 st.subheader("Diagnostic Image Viewer & Controls")
                 if hasattr(ds, "pixel_array"):
                     pixel_array = ds.pixel_array.astype(np.float32)
-                    
                     if modality == "CT":
                         slope = float(getattr(ds, "RescaleSlope", 1.0))
                         intercept = float(getattr(ds, "RescaleIntercept", 0.0))
@@ -244,22 +217,18 @@ with tab2:
                     vmax = wc + ww / 2
                     
                     fig, ax = plt.subplots(figsize=(4.5, 4.5))
-                    im = ax.imshow(img_data, cmap=plt.cm.bone, vmin=vmin, vmax=vmax)
+                    ax.imshow(img_data, cmap=plt.cm.bone, vmin=vmin, vmax=vmax)
                     ax.axis('off')
                     st.pyplot(fig)
                     
                     with st.expander("📊 Pixel Statistics & Histogram"):
-                        mean_val = np.mean(img_data)
-                        std_val = np.std(img_data)
-                        st.write(f"- **Mean Value:** {mean_val:.2f} {unit_label}")
-                        st.write(f"- **Standard Deviation:** {std_val:.2f}")
+                        st.write(f"- **Mean Value:** {np.mean(img_data):.2f} {unit_label}")
+                        st.write(f"- **Standard Deviation:** {np.std(img_data):.2f}")
                         st.write(f"- **Min / Max:** {min_val:.1f} / {max_val:.1f} {unit_label}")
                         
                         fig_hist, ax_hist = plt.subplots(figsize=(5, 2.5))
                         ax_hist.hist(img_data.ravel(), bins=64, color='skyblue', edgecolor='black')
                         ax_hist.set_title(f"Pixel Intensity Distribution ({unit_label})", fontsize=10)
-                        ax_hist.set_xlabel(unit_label, fontsize=8)
-                        ax_hist.set_ylabel("Frequency", fontsize=8)
                         st.pyplot(fig_hist)
                 else:
                     st.info("No pixel data found in this DICOM file.")
@@ -282,3 +251,84 @@ with tab2:
 
         except Exception as e:
             st.error(f"Could not read the DICOM file: {e}")
+
+with tab3:
+    st.header("📊 Batch Dataset Report & CSV Export")
+    st.markdown("Upload a ZIP folder containing multiple DICOM files (mixed patients, CT series, or X-rays). The tool automatically groups CT slices per patient/series and aggregates summary statistics into a clean report.")
+
+    batch_zip = st.file_uploader("Upload Multi-Dataset ZIP", type=["zip"], key="batch_zip")
+
+    if batch_zip is not None:
+        if st.button("Process & Aggregate Dataset"):
+            try:
+                records = {}
+                with zipfile.ZipFile(batch_zip, 'r') as zip_in:
+                    for filename in zip_in.namelist():
+                        if filename.endswith(('.dcm', '.DCM')) or '.' not in filename.split('/')[-1]:
+                            file_content = zip_in.read(filename)
+                            try:
+                                ds = pydicom.dcmread(io.BytesIO(file_content))
+                                patient_id = str(getattr(ds, "PatientID", "UNKNOWN_PATIENT"))
+                                modality = str(getattr(ds, "Modality", "UNKNOWN"))
+                                series_uid = str(getattr(ds, "SeriesInstanceUID", "UNKNOWN_SERIES"))
+                                
+                                # Key for grouping: Patient + Modality + Series
+                                group_key = f"{patient_id}_{modality}_{series_uid}"
+                                
+                                if group_key not in records:
+                                    records[group_key] = {
+                                        "Patient ID": patient_id,
+                                        "Modality": modality,
+                                        "Study Description": str(getattr(ds, "StudyDescription", "N/A")),
+                                        "Manufacturer": str(getattr(ds, "Manufacturer", "N/A")),
+                                        "Slice Thickness": str(getattr(ds, "Slice Thickness", "N/A")),
+                                        "Matrix Size": f"{getattr(ds, 'Rows', 'N/A')} x {getattr(ds, 'Columns', 'N/A')}",
+                                        "Slice Count": 0,
+                                        "Mean Pixel Value": []
+                                    }
+                                
+                                records[group_key]["Slice Count"] += 1
+                                if hasattr(ds, "pixel_array"):
+                                    arr = ds.pixel_array.astype(np.float32)
+                                    if modality == "CT":
+                                        slope = float(getattr(ds, "RescaleSlope", 1.0))
+                                        intercept = float(getattr(ds, "RescaleIntercept", 0.0))
+                                        arr = arr * slope + intercept
+                                    records[group_key]["Mean Pixel Value"].append(np.mean(arr))
+                                    
+                            except Exception:
+                                continue
+                
+                # Format into final summary rows
+                summary_data = []
+                for k, v in records.items():
+                    mean_val = np.mean(v["Mean Pixel Value"]) if v["Mean Pixel Value"] else 0.0
+                    summary_data.append({
+                        "Patient ID": v["Patient ID"],
+                        "Modality": v["Modality"],
+                        "Study Description": v["Study Description"],
+                        "Manufacturer": v["Manufacturer"],
+                        "Total Slices / Files": v["Slice Count"],
+                        "Slice Thickness": v["Slice Thickness"],
+                        "Matrix Size": v["Matrix Size"],
+                        "Avg Mean Pixel / HU": f"{mean_val:.2f}"
+                    })
+                
+                if summary_data:
+                    df_summary = pd.DataFrame(summary_data)
+                    st.success(f"Successfully aggregated dataset! Found {len(summary_data)} distinct patient/series groups.")
+                    st.dataframe(df_summary, use_container_width=True)
+                    
+                    # Convert to CSV for download
+                    csv_bytes = df_summary.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Download Summary CSV Report",
+                        data=csv_bytes,
+                        file_name="medphys_dicom_batch_report.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.warning("No valid DICOM files were found inside the ZIP archive.")
+                    
+            except Exception as e:
+                st.error(f"Error processing batch archive: {e}")
