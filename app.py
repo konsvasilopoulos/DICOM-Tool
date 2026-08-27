@@ -33,6 +33,10 @@ def generate_demo_ct():
     ds.StudyDate = datetime.datetime.now().strftime("%Y%m%d")
     ds.Modality = "CT"
     ds.Manufacturer = "SIEMENS_DEMO"
+    ds.StationName = "CT_ROOM_01"
+    ds.KVP = "120"
+    ds.XRayTubeCurrent = "250"
+    ds.ExposureTime = "1000"
     ds.StudyDescription = "Routine Head CT"
     ds.Rows = 512
     ds.Columns = 512
@@ -68,6 +72,10 @@ def generate_demo_dx():
     ds.StudyDate = datetime.datetime.now().strftime("%Y%m%d")
     ds.Modality = "DX"
     ds.Manufacturer = "PHILIPS_DEMO"
+    ds.StationName = "XRAY_ROOM_03"
+    ds.KVP = "75"
+    ds.XRayTubeCurrent = "320"
+    ds.ExposureTime = "150"
     ds.StudyDescription = "Chest X-Ray"
     ds.Rows = 512
     ds.Columns = 512
@@ -184,6 +192,10 @@ with tab2:
                     "Patient ID": getattr(ds, "PatientID", "N/A"),
                     "Study Description": getattr(ds, "StudyDescription", "N/A"),
                     "Manufacturer": getattr(ds, "Manufacturer", "N/A"),
+                    "Station Name": getattr(ds, "StationName", "N/A"),
+                    "Tube Voltage (kVp)": getattr(ds, "KVP", "N/A"),
+                    "Tube Current (mA)": getattr(ds, "XRayTubeCurrent", "N/A"),
+                    "Exposure Time (ms)": getattr(ds, "ExposureTime", "N/A"),
                     "Matrix Size": f"{getattr(ds, 'Rows', 'N/A')} x {getattr(ds, 'Columns', 'N/A')}",
                     "Slice Thickness": getattr(ds, "Slice Thickness", "N/A"),
                 }
@@ -272,7 +284,6 @@ with tab3:
                                 modality = str(getattr(ds, "Modality", "UNKNOWN"))
                                 series_uid = str(getattr(ds, "SeriesInstanceUID", "UNKNOWN_SERIES"))
                                 
-                                # Key for grouping: Patient + Modality + Series
                                 group_key = f"{patient_id}_{modality}_{series_uid}"
                                 
                                 if group_key not in records:
@@ -281,6 +292,10 @@ with tab3:
                                         "Modality": modality,
                                         "Study Description": str(getattr(ds, "StudyDescription", "N/A")),
                                         "Manufacturer": str(getattr(ds, "Manufacturer", "N/A")),
+                                        "Station Name": str(getattr(ds, "StationName", "N/A")),
+                                        "kVp": str(getattr(ds, "KVP", "N/A")),
+                                        "Tube Current (mA)": str(getattr(ds, "XRayTubeCurrent", "N/A")),
+                                        "Exposure Time (ms)": str(getattr(ds, "ExposureTime", "N/A")),
                                         "Slice Thickness": str(getattr(ds, "Slice Thickness", "N/A")),
                                         "Matrix Size": f"{getattr(ds, 'Rows', 'N/A')} x {getattr(ds, 'Columns', 'N/A')}",
                                         "Slice Count": 0,
@@ -299,7 +314,6 @@ with tab3:
                             except Exception:
                                 continue
                 
-                # Format into final summary rows
                 summary_data = []
                 for k, v in records.items():
                     mean_val = np.mean(v["Mean Pixel Value"]) if v["Mean Pixel Value"] else 0.0
@@ -308,6 +322,10 @@ with tab3:
                         "Modality": v["Modality"],
                         "Study Description": v["Study Description"],
                         "Manufacturer": v["Manufacturer"],
+                        "Station Name": v["Station Name"],
+                        "kVp": v["kVp"],
+                        "Tube Current (mA)": v["Tube Current (mA)"],
+                        "Exposure Time (ms)": v["Exposure Time (ms)"],
                         "Total Slices / Files": v["Slice Count"],
                         "Slice Thickness": v["Slice Thickness"],
                         "Matrix Size": v["Matrix Size"],
@@ -319,7 +337,6 @@ with tab3:
                     st.success(f"Successfully aggregated dataset! Found {len(summary_data)} distinct patient/series groups.")
                     st.dataframe(df_summary, use_container_width=True)
                     
-                    # Convert to CSV for download
                     csv_bytes = df_summary.to_csv(index=False).encode('utf-8')
                     st.download_button(
                         label="📥 Download Summary CSV Report",
