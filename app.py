@@ -16,8 +16,8 @@ st.set_page_config(
 
 st.title("🏥 Open-Source DICOM Toolkit for Medical Physics")
 st.markdown("""
-A lightweight, open-source web application designed for medical physicists and researchers to quickly inspect 
-and securely anonymize DICOM files locally, ensuring patient data privacy.
+A lightweight, open-source web application designed for medical physicists and researchers to quickly inspect, 
+adjust, and securely anonymize DICOM files locally.
 """)
 
 def generate_demo_dicom():
@@ -40,12 +40,14 @@ def generate_demo_dicom():
     ds.SliceThickness = "2.5"
     ds.PixelSpacing = [0.5, 0.5]
     ds.InstitutionName = "UNIVERSITY HOSPITAL"
+    ds.RescaleIntercept = 0.0
+    ds.RescaleSlope = 1.0
     
-    # Δημιουργία ψεύτικου πίνακα pixel (κύκλος μέσα σε τετράγωνο για δοκιμή)
+    # Fake image array (circle mimicking an object)
     y, x = np.ogrid[:512, :512]
     mask = (x - 256)**2 + (y - 256)**2 <= 100**2
-    img_array = np.zeros((512, 512), dtype=np.uint16)
-    img_array[mask] = 1000 # HU imitation
+    img_array = np.zeros((512, 512), dtype=np.int16)
+    img_array[mask] = 400 # HU imitation
     ds.PixelData = img_array.tobytes()
     
     out_bytes = io.BytesIO()
@@ -55,7 +57,7 @@ def generate_demo_dicom():
     out_bytes.seek(0)
     return out_bytes.getvalue()
 
-tab1, tab2 = st.tabs(["🔒 DICOM Anonymizer", "🔍 DICOM Quick Inspector & Viewer"])
+tab1, tab2 = st.tabs(["🔒 DICOM Anonymizer", "🔍 DICOM Inspector & Advanced Viewer"])
 
 with tab1:
     st.header("Batch DICOM Anonymizer")
@@ -123,8 +125,8 @@ with tab1:
                 st.error(f"An error occurred during processing: {e}")
 
 with tab2:
-    st.header("DICOM Quick Inspector & Image Viewer")
-    st.markdown("Upload a single DICOM file (or use the demo generator above) to inspect its tags and visualize the medical image.")
+    st.header("DICOM Quick Inspector & Advanced Viewer")
+    st.markdown("Upload a single DICOM file to inspect technical tags, adjust window levels, and view the image.")
 
     uploaded_dcm = st.file_uploader("Upload DICOM File (.dcm)", type=["dcm", "IMA"], key="inspect_dcm")
 
@@ -135,29 +137,64 @@ with tab2:
             col1, col2 = st.columns([1, 1])
             
             with col1:
-                st.subheader("Technical Summary")
+                st.subheader("Key Metadata Summary")
                 info = {
                     "Modality": getattr(ds, "Modality", "Unknown"),
-                    "Patient ID (Anonymized check)": getattr(ds, "PatientID", "N/A"),
+                    "Patient ID": getattr(ds, "PatientID", "N/A"),
                     "Study Description": getattr(ds, "StudyDescription", "N/A"),
                     "Manufacturer": getattr(ds, "Manufacturer", "N/A"),
+                    "Rows x Columns": f"{getattr(ds, 'Rows', 'N/A')} x {getattr(ds, 'Columns', 'N/A')}",
+                    "Slice Thickness": getattr(ds, "Slice Thickness", "N/A"),
                 }
                 df_info = pd.DataFrame(list(info.items()), columns=["Parameter", "Value"])
-                search_query = st.text_input("🔍 Filter Parameters", "")
-                if search_query:
-                    df_info = df_info[df_info['Parameter'].str.contains(search_query, case=False) | 
-                                      df_info['Value'].str.contains(search_query, case=False)]
                 st.table(df_info)
 
             with col2:
-                st.subheader("Image Preview")
+                st.subheader("Interactive Image Viewer")
                 if hasattr(ds, "pixel_array"):
-                    fig, ax = plt.subplots()
-                    ax.imshow(ds.pixel_array, cmap=plt.cm.bone)
+                    # Get pixel data and apply rescale slope/intercept if available
+                    pixel_array = ds.pixel_array.astype(np.float32)
+                    slope = float(getattr(ds, "RescaleSlope", 1.0))
+                    intercept = float(getattr(ds, "RescaleIntercept", 0.0))
+                    img_data = pixel_array * slope + intercept
+                    
+                    # Window / Level controls
+                    min_val, max_val = float(img_data.min()), float(img_data.max())
+                    default_center = float(np.mean(img_data))
+                    default_width = float(max(100.0, max_val - min_val))
+                    
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        wc = st.slider("Window Center (Level)", min_value=min_val, max_value=max_val, value=default_center)
+                    with c2:
+                        ww = st.slider("Window Width", min_value=1.0, max_value=max(10.0, max_val - min_val), value=default_width)
+                    
+                    vmin = wc - ww / 2
+                    vmax = wc + ww / 2
+                    
+                    fig, ax = plt.subplots(figsize=(5, 5))
+                    im = ax.imshow(img_data, cmap=plt.cm.bone, vmin=vmin, vmax=vmax)
                     ax.axis('off')
                     st.pyplot(fig)
                 else:
                     st.info("No pixel data found in this DICOM file.")
+
+            # Full Tag Explorer Expander
+            with st.expander("📋 Explore All DICOM Tags (Raw Metadata)"):
+                all_tags = []
+                for elem in ds:
+                    if elem.tag != 0x7fe00010: # Exclude raw pixel data binary
+                        all_tags.append({
+                            "Tag": str(elem.tag),
+                            "Keyword": getattr(elem, "keyword", ""),
+                            "Name": elem.name,
+                            "Value": str(elem.value)[:100] # truncate long values
+                        })
+                df_tags = pd.DataFrame(all_tags)
+                tag_search = st.text_input("🔍 Search all DICOM tags", "")
+                if tag_search:
+                    df_tags = df_tags[df_tags.apply(lambda row: row.astype(str).str.contains(tag_search, case=False).any(), axis=1)]
+                st.dataframe(df_tags, use_container_width=True)
 
         except Exception as e:
             st.error(f"Could not read the DICOM file: {e}")
