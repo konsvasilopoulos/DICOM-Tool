@@ -17,15 +17,15 @@ st.set_page_config(
 # --- SIDEBAR: AUTHOR & INFO ---
 with st.sidebar:
     st.image("https://img.icons8.com/color/96/medical-doctor.png", width=64)
-    st.header("About Toolkit")
+    st.header("MedPhys Toolkit")
     st.markdown("""
     A lightweight, open-source web application designed for medical physicists and researchers.
     """)
     st.divider()
     st.markdown("**Developer / Creator:**")
     st.markdown("👨‍💻 **Konstantinos G. Vasilopoulos**")
-    st.markdown("*Medical Physics & Research*")
-    st.markdown("✉️ **Email:** kostasvasilopoulosgr@yahoo.com") 
+    st.markdown("*Medical Physicist & Researcher*")
+    st.markdown("✉️ **Email:** kostasvasilopoulosgr@yahoo.com")
     st.divider()
 
 # --- MAIN PAGE ---
@@ -112,7 +112,7 @@ def generate_demo_dx():
 tab1, tab2, tab3 = st.tabs(["🔒 DICOM Anonymizer", "🔍 Inspector & Viewer", "📊 Batch CSV Report Generator"])
 
 with tab1:
-    st.header("Batch DICOM Anonymizer")
+    st.header("🔒 Batch DICOM Anonymizer")
     st.markdown("Upload a **ZIP archive** containing your DICOM files, or generate demo datasets to test the tool instantly.")
 
     with st.expander("🧪 Don't have DICOM files? Generate Test Data"):
@@ -180,7 +180,7 @@ with tab1:
                 st.error(f"An error occurred during processing: {e}")
 
 with tab2:
-    st.header("DICOM Inspector & Diagnostic Viewer")
+    st.header("🔍 DICOM Inspector & Diagnostic Viewer")
     st.markdown("Upload a single diagnostic DICOM file (CT, DX, CR, MG, etc.) or use the demo generators.")
 
     uploaded_dcm = st.file_uploader("Upload DICOM File (.dcm)", type=["dcm", "IMA"], key="inspect_dcm")
