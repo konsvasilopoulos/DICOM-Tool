@@ -14,10 +14,24 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- SIDEBAR: AUTHOR & INFO ---
+with st.sidebar:
+    st.image("https://img.icons8.com/color/96/medical-doctor.png", width=64)
+    st.header("About Toolkit")
+    st.markdown("""
+    A lightweight, open-source web application designed for medical physicists and researchers.
+    """)
+    st.divider()
+    st.markdown("**Developer / Creator:**")
+    st.markdown("👨‍💻 **Konstantinos G. Vasilopoulos**")
+    st.markdown("*Medical Physics & Research*")
+    st.markdown("✉️ **Email:** kostasvasilopoulosgr@yahoo.com") 
+    st.divider()
+
+# --- MAIN PAGE ---
 st.title("🏥 Open-Source DICOM Toolkit for Medical Physics")
 st.markdown("""
-A lightweight, open-source web application designed for medical physicists and researchers to quickly inspect, 
-adjust, anonymize, and batch-analyze DICOM datasets locally.
+Quickly inspect, adjust, anonymize, and batch-analyze DICOM datasets locally with modality-aware processing.
 """)
 
 def generate_demo_ct():
@@ -349,3 +363,7 @@ with tab3:
                     
             except Exception as e:
                 st.error(f"Error processing batch archive: {e}")
+
+# --- FOOTER ---
+st.markdown("---")
+st.markdown("<p style='text-align: center; color: gray;'>Developed by <b>Konstantinos G. Vasilopoulos</b> | Contact: your_email@example.com</p>", unsafe_allow_html=True)
