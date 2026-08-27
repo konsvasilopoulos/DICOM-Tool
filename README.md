@@ -28,8 +28,5 @@ A lightweight, open-source web application built with Python and Streamlit, desi
 
 ## Installation & Execution
 
-* Download and extract the zip file
-* Install the required dependencies :
-* pip install -r requirements.txt
-* Launch the web app in your terminal :
-* streamlit run app.py
+* **You can find the app here:**
+* https://dicom-tool-fcpymgt4csqtakjfw2d35r.streamlit.app/ 
