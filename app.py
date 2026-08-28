@@ -291,7 +291,6 @@ with tab2:
                     if canvas_result.json_data is not None:
                         objects = canvas_result.json_data["objects"]
                         if objects:
-                            # Take the latest drawn object
                             obj = objects[-1]
                             scale_x = img_data.shape[1] / 400.0
                             scale_y = img_data.shape[0] / 400.0
@@ -403,7 +402,7 @@ with tab3:
                                     arr = ds.pixel_array.astype(np.float32)
                                     if modality == "CT":
                                         slope = float(getattr(ds, "RescaleSlope", 1.0))
-                               , intercept = float(getattr(ds, "RescaleIntercept", 0.0))
+                                        intercept = float(getattr(ds, "RescaleIntercept", 0.0))
                                         arr = arr * slope + intercept
                                     records[group_key]["Mean Pixel Value"].append(np.mean(arr))
                                     
