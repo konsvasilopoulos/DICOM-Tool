@@ -312,11 +312,6 @@ with tab2:
                     # --- RENDER DISTANCE RULER IF ENABLED ---
                     enable_ruler = st.session_state.get("enable_ruler", False)
                     pixel_spacing_val = st.session_state.get("calib_spacing", 1.0)
-                    if hasattr(ds, "PixelSpacing") and ds.PixelSpacing:
-                        try:
-                            pixel_spacing_val = float(ds.PixelSpacing[0])
-                        except:
-                            pass
 
                     if enable_ruler:
                         rx1 = st.session_state.get("ruler_x1", img_w // 4)
@@ -339,19 +334,29 @@ with tab2:
             with col_right_controls:
                 st.subheader("⚙️ Toolbox & QC Tools")
                 
-                # --- 1. VISUAL ENHANCEMENTS & COLORMAPS (Expander) ---
+                # --- 1. VISUAL ENHANCEMENTS & COLORMAPS ---
                 with st.expander("🎨 Visual Enhancements & Colormaps", expanded=False):
                     st.selectbox("Color Palette", ["bone", "gray", "jet", "hot", "viridis"], key="colormap_choice")
                     st.checkbox("Invert Black/White (Invert Image)", key="invert_choice")
 
-                # --- 2. MULTI-ROI ANALYSIS (Expander) ---
+                # --- 2. MULTI-ROI ANALYSIS (Compact Inline Layout) ---
                 with st.expander("🎯 Multi-ROI Analysis & QC", expanded=True):
-                    st.markdown("Επιλέξτε ποια ROIs θέλετε να εμφανίζονται και να μετρούνται:")
+                    st.markdown("Select ROIs to display & analyze:")
+                    
+                    # Compact Inline Checkboxes
+                    c_chk1, c_chk2, c_chk3, c_chk4, c_chk5 = st.columns(5)
+                    with c_chk1: st.checkbox("Center", key="chk_Center")
+                    with c_chk2: st.checkbox("Top", key="chk_Top")
+                    with c_chk3: st.checkbox("Bottom", key="chk_Bottom")
+                    with c_chk4: st.checkbox("Left", key="chk_Left")
+                    with c_chk5: st.checkbox("Right", key="chk_Right")
+                    
+                    st.markdown("---")
                     for rc in roi_configs_all:
                         r_name = rc["name"]
-                        is_sel = st.checkbox(f"Εμφάνιση {r_name} ROI", key=f"chk_{r_name}")
-                        if is_sel:
-                            st.selectbox(f"Σχήμα {r_name}", ["Circle", "Square"], key=f"shape_{r_name}")
+                        if st.session_state.get(f"chk_{r_name}", False):
+                            st.markdown(f"**{r_name} ROI Settings**")
+                            st.selectbox(f"Shape ({r_name})", ["Circle", "Square"], key=f"shape_{r_name}")
                             col_sx, col_sy = st.columns(2)
                             with col_sx:
                                 st.slider(f"X ({r_name})", min_value=0, max_value=img_w, value=cx_default + rc["default_dx"], key=f"x_{r_name}")
@@ -359,19 +364,26 @@ with tab2:
                                 st.slider(f"Y ({r_name})", min_value=0, max_value=img_h, value=cy_default + rc["default_dy"], key=f"y_{r_name}")
                             
                             if st.session_state.get(f"shape_{r_name}", "Circle") == "Square":
-                                st.slider(f"Size {r_name}", min_value=5, max_value=100, value=30, key=f"size_{r_name}")
+                                st.slider(f"Size ({r_name})", min_value=5, max_value=100, value=30, key=f"size_{r_name}")
                             else:
-                                st.slider(f"Radius {r_name}", min_value=5, max_value=50, value=20, key=f"rad_{r_name}")
+                                st.slider(f"Radius ({r_name})", min_value=5, max_value=50, value=20, key=f"rad_{r_name}")
                             st.divider()
 
-                # --- 3. DISTANCE RULER & CALIBRATION (Expander) ---
+                # --- 3. DISTANCE RULER & SMART CALIBRATION ---
                 with st.expander("📏 Distance Ruler & Calibration", expanded=False):
-                    st.markdown("**Pixel Calibration (mm/pixel):**")
-                    default_sp = float(ds.PixelSpacing[0]) if (hasattr(ds, "PixelSpacing") and ds.PixelSpacing) else 1.0
-                    st.number_input("Resolution (mm/pixel)", min_value=0.01, value=default_sp, key="calib_spacing")
+                    # Smart Auto-detect PixelSpacing from DICOM header
+                    auto_sp = 1.0
+                    if hasattr(ds, "PixelSpacing") and ds.PixelSpacing:
+                        try:
+                            auto_sp = float(ds.PixelSpacing[0])
+                        except:
+                            pass
+                    
+                    st.markdown(f"📌 **Auto-detected Pixel Spacing:** `{auto_sp} mm/pixel`")
+                    st.number_input("Resolution (mm/pixel) - Manual Override", min_value=0.001, value=auto_sp, format="%.4f", key="calib_spacing")
                     
                     st.markdown("---")
-                    st.checkbox("📏 Ενεργοποίηση Χάρακα (Distance Ruler)", key="enable_ruler")
+                    st.checkbox("📏 Enable Distance Ruler", key="enable_ruler")
                     if st.session_state.get("enable_ruler", False):
                         col_r1, col_r2 = st.columns(2)
                         with col_r1:
@@ -385,7 +397,7 @@ with tab2:
                         dy = st.session_state.ruler_y2 - st.session_state.ruler_y1
                         p_dist = np.sqrt(dx**2 + dy**2)
                         m_dist = p_dist * st.session_state.calib_spacing
-                        st.info(f"📐 **Μήκος Γραμμής:** `{p_dist:.1f} px` | `{m_dist:.2f} mm`")
+                        st.info(f"📐 **Ruler Length:** `{p_dist:.1f} px` | `{m_dist:.2f} mm`")
 
                 # --- MEASUREMENTS TABLE & SCIENTIFIC SNR / CNR ---
                 if roi_summary_data:
@@ -396,11 +408,10 @@ with tab2:
                         "StdDev": f"{d['StdDev']:.2f}",
                         "Min": f"{d['Min']:.1f}",
                         "Max": f"{d['Max']:.1f}",
-                        "SNR (Mean/SD)": f"{(d['Mean'] / d['StdDev']):.2f}" if d['StdDev'] > 0 else "N/A"
+                        "SNR": f"{(d['Mean'] / d['StdDev']):.2f}" if d['StdDev'] > 0 else "N/A"
                     } for d in roi_summary_data])
                     st.table(df_display)
                     
-                    # Scientific CNR calculation relative to Center
                     means = {d["ROI Name"]: d["Mean"] for d in roi_summary_data}
                     stds = {d["ROI Name"]: d["StdDev"] for d in roi_summary_data}
                     
