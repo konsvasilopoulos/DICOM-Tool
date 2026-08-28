@@ -189,7 +189,6 @@ with tab2:
             ds = pydicom.dcmread(uploaded_dcm)
             modality = getattr(ds, "Modality", "UNKNOWN")
             
-            # Smart detection for portable / mobile units
             study_desc = str(getattr(ds, "StudyDescription", "")).upper()
             series_desc = str(getattr(ds, "SeriesDescription", "")).upper()
             station_name = str(getattr(ds, "StationName", "")).upper()
@@ -198,14 +197,14 @@ with tab2:
             if modality == "CT":
                 st.success(f"📌 Detected Modality: **CT (Computed Tomography)** — Hounsfield Units active.")
             elif modality == "MG":
-                st.info(f"📌 Detected Modality: **MG (Mammography)** — High-resolution projection mode active.")
+                st.info(f"📌 Detected Modality: **MG (Mammography)** — High-resolution mode active.")
             elif modality in ["DX", "CR"]:
                 portable_tag = " [⚠️ PORTABLE / MOBILE UNIT]" if is_portable else ""
-                st.info(f"📌 Detected Modality: **Radiography ({modality}){portable_tag}** — Raw Pixel Intensity mode active.")
+                st.info(f"📌 Detected Modality: **Radiography ({modality}){portable_tag}** — Raw Pixel Intensity active.")
             else:
                 st.warning(f"📌 Detected Modality: **{modality}**")
 
-            # --- PROFESSIONAL 2-COLUMN LAYOUT ---
+            # --- 2-COLUMN LAYOUT ---
             col_left_viewer, col_right_controls = st.columns([1.1, 0.9], gap="large")
             
             with col_left_viewer:
@@ -223,6 +222,7 @@ with tab2:
                     
                     min_val, max_val = float(img_data.min()), float(img_data.max())
                     
+                    # Window Presets & Transforms Controls
                     if modality == "CT":
                         preset = st.selectbox("Window Presets", ["Custom", "Soft Tissue (C:40, W:400)", "Bone (C:400, W:1500)", "Lung (C:-600, W:1500)", "Brain (C:40, W:80)"])
                         if preset == "Soft Tissue (C:40, W:400)":
@@ -246,58 +246,69 @@ with tab2:
                     vmin = wc - ww / 2
                     vmax = wc + ww / 2
                     
-                    img_h, img_w = img_data.shape
-                    cx_default, cy_default = img_w // 2, img_h // 2
+                    # Render Image with Colormap & Invert options from Right Column
+                    colormap_choice = st.session_state.get("colormap_choice", "bone")
+                    invert_choice = st.session_state.get("invert_choice", False)
                     
-                    roi_configs = [
-                        {"name": "Center", "default_dx": 0, "default_dy": 0, "color": "red"},
-                        {"name": "Top", "default_dx": 0, "default_dy": -int(img_h * 0.25), "color": "blue"},
-                        {"name": "Bottom", "default_dx": 0, "default_dy": int(img_h * 0.25), "color": "green"},
-                        {"name": "Left", "default_dx": -int(img_w * 0.25), "default_dy": 0, "color": "orange"},
-                        {"name": "Right", "default_dx": int(img_w * 0.25), "default_dy": 0, "color": "purple"}
-                    ]
-                    
+                    final_cmap = colormap_choice
+                    plot_data = img_data
+                    if invert_choice:
+                        # Invert intensities for visualization
+                        plot_data = vmax - (img_data - vmin)
+
                     fig, ax = plt.subplots(figsize=(5, 5))
-                    ax.imshow(img_data, cmap=plt.cm.bone, vmin=vmin, vmax=vmax)
+                    ax.imshow(plot_data, cmap=final_cmap, vmin=vmin, vmax=vmax)
                     ax.axis('off')
                     
                     roi_summary_data = []
+                    enable_roi = st.session_state.get("enable_roi", False)
                     
-                    for rc in roi_configs:
-                        r_name = rc["name"]
-                        pos_x = st.session_state.get(f"x_{r_name}", cx_default + rc["default_dx"])
-                        pos_y = st.session_state.get(f"y_{r_name}", cy_default + rc["default_dy"])
-                        r_shape = st.session_state.get(f"shape_{r_name}", "Circle")
+                    if enable_roi:
+                        img_h, img_w = img_data.shape
+                        cx_default, cy_default = img_w // 2, img_h // 2
+                        roi_configs = [
+                            {"name": "Center", "default_dx": 0, "default_dy": 0, "color": "red"},
+                            {"name": "Top", "default_dx": 0, "default_dy": -int(img_h * 0.25), "color": "blue"},
+                            {"name": "Bottom", "default_dx": 0, "default_dy": int(img_h * 0.25), "color": "green"},
+                            {"name": "Left", "default_dx": -int(img_w * 0.25), "default_dy": 0, "color": "orange"},
+                            {"name": "Right", "default_dx": int(img_w * 0.25), "default_dy": 0, "color": "purple"}
+                        ]
                         
-                        max_dim = min(img_h, img_w) // 4
-                        if r_shape == "Square":
-                            r_size = st.session_state.get(f"size_{r_name}", 30)
-                            x1, x2 = max(0, pos_x - r_size//2), min(img_w, pos_x + r_size//2)
-                            y1, y2 = max(0, pos_y - r_size//2), min(img_h, pos_y + r_size//2)
-                            roi_pixels = img_data[y1:y2, x1:x2]
+                        for rc in roi_configs:
+                            r_name = rc["name"]
+                            pos_x = st.session_state.get(f"x_{r_name}", cx_default + rc["default_dx"])
+                            pos_y = st.session_state.get(f"y_{r_name}", cy_default + rc["default_dy"])
+                            r_shape = st.session_state.get(f"shape_{r_name}", "Circle")
                             
-                            rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=1.5, edgecolor=rc["color"], facecolor='none')
-                            ax.add_patch(rect)
-                            ax.text(x1, y1 - 5, r_name, color=rc["color"], fontsize=9, weight='bold')
-                        else:
-                            r_radius = st.session_state.get(f"rad_{r_name}", 20)
-                            y_grid, x_grid = np.ogrid[:img_h, :img_w]
-                            mask = (x_grid - pos_x)**2 + (y_grid - pos_y)**2 <= r_radius**2
-                            roi_pixels = img_data[mask]
+                            max_dim = min(img_h, img_w) // 4
+                            if r_shape == "Square":
+                                r_size = st.session_state.get(f"size_{r_name}", 30)
+                                x1, x2 = max(0, pos_x - r_size//2), min(img_w, pos_x + r_size//2)
+                                y1, y2 = max(0, pos_y - r_size//2), min(img_h, pos_y + r_size//2)
+                                roi_pixels = img_data[y1:y2, x1:x2]
+                                
+                                rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=1.5, edgecolor=rc["color"], facecolor='none')
+                                ax.add_patch(rect)
+                                ax.text(x1, y1 - 5, r_name, color=rc["color"], fontsize=9, weight='bold')
+                            else:
+                                r_radius = st.session_state.get(f"rad_{r_name}", 20)
+                                y_grid, x_grid = np.ogrid[:img_h, :img_w]
+                                mask = (x_grid - pos_x)**2 + (y_grid - pos_y)**2 <= r_radius**2
+                                roi_pixels = img_data[mask]
+                                
+                                circle = patches.Circle((pos_x, pos_y), r_radius, linewidth=1.5, edgecolor=rc["color"], facecolor='none')
+                                ax.add_patch(circle)
+                                ax.text(pos_x - r_radius, pos_y - r_radius - 5, r_name, color=rc["color"], fontsize=9, weight='bold')
                             
-                            circle = patches.Circle((pos_x, pos_y), r_radius, linewidth=1.5, edgecolor=rc["color"], facecolor='none')
-                            ax.add_patch(circle)
-                            ax.text(pos_x - r_radius, pos_y - r_radius - 5, r_name, color=rc["color"], fontsize=9, weight='bold')
-                        
-                        if roi_pixels.size > 0:
-                            roi_summary_data.append({
-                                "ROI Name": r_name,
-                                "Shape": r_shape,
-                                "Mean": f"{np.mean(roi_pixels):.2f}",
-                                "Noise (StdDev)": f"{np.std(roi_pixels):.2f}",
-                                "Min": f"{np.min(roi_pixels):.1f}",
-                                "Max": f"{np.max(roi_pixels):.1f}"
-                            })
+                            if roi_pixels.size > 0:
+                                roi_summary_data.append({
+                                    "ROI Name": r_name,
+                                    "Shape": r_shape,
+                                    "Mean": np.mean(roi_pixels),
+                                    "StdDev": np.std(roi_pixels),
+                                    "Min": np.min(roi_pixels),
+                                    "Max": np.max(roi_pixels)
+                                })
                     
                     st.pyplot(fig)
                     
@@ -307,30 +318,67 @@ with tab2:
                     st.download_button("📥 Download Preview PNG", img_buf, file_name="dicom_preview.png", mime="image/png")
 
             with col_right_controls:
-                st.subheader("⚙️ Multi-ROI & QC Tools")
+                st.subheader("⚙️ Toolbox & QC Tools")
                 
-                with st.expander("🎯 Configure ROIs (Center, Top, Bottom, Left, Right)", expanded=True):
-                    for rc in roi_configs:
-                        r_name = rc["name"]
-                        with st.container():
+                # --- 1. VISUAL TRANSFORMS & COLORMAPS ---
+                with st.expander("🎨 Visual Enhancements & Colormaps", expanded=True):
+                    st.selectbox("Color Palette", ["bone", "gray", "jet", "hot", "viridis"], key="colormap_choice")
+                    st.checkbox("Invert Black/White (Invert Image)", key="invert_choice")
+                
+                # --- 2. ON/OFF SWITCH FOR ROIS ---
+                st.checkbox("🎯 Enable Multi-ROI Analysis", value=False, key="enable_roi")
+                
+                if st.session_state.get("enable_roi", False):
+                    with st.expander("📌 Configure ROIs (Center, Top, Bottom, Left, Right)", expanded=True):
+                        img_h, img_w = img_data.shape
+                        cx_default, cy_default = img_w // 2, img_h // 2
+                        roi_configs_defaults = [
+                            {"name": "Center", "dx": 0, "dy": 0},
+                            {"name": "Top", "dx": 0, "dy": -int(img_h * 0.25)},
+                            {"name": "Bottom", "dx": 0, "dy": int(img_h * 0.25)},
+                            {"name": "Left", "dx": -int(img_w * 0.25), "dy": 0},
+                            {"name": "Right", "dx": int(img_w * 0.25), "dy": 0}
+                        ]
+                        for rc in roi_configs_defaults:
+                            r_name = rc["name"]
                             st.markdown(f"**{r_name} ROI**")
-                            r_shape = st.selectbox(f"Shape {r_name}", ["Circle", "Square"], key=f"shape_{r_name}")
+                            st.selectbox(f"Shape {r_name}", ["Circle", "Square"], key=f"shape_{r_name}")
                             col_sx, col_sy = st.columns(2)
                             with col_sx:
-                                st.slider(f"X ({r_name})", min_value=0, max_value=img_w, value=cx_default + rc["default_dx"], key=f"x_{r_name}")
+                                st.slider(f"X ({r_name})", min_value=0, max_value=img_w, value=cx_default + rc["dx"], key=f"x_{r_name}")
                             with col_sy:
-                                st.slider(f"Y ({r_name})", min_value=0, max_value=img_h, value=cy_default + rc["default_dy"], key=f"y_{r_name}")
+                                st.slider(f"Y ({r_name})", min_value=0, max_value=img_h, value=cy_default + rc["dy"], key=f"y_{r_name}")
                             
-                            if r_shape == "Square":
+                            if st.session_state.get(f"shape_{r_name}", "Circle") == "Square":
                                 st.slider(f"Size {r_name}", min_value=5, max_value=100, value=30, key=f"size_{r_name}")
                             else:
                                 st.slider(f"Radius {r_name}", min_value=5, max_value=50, value=20, key=f"rad_{r_name}")
                             st.divider()
 
+                # --- 3. MEASUREMENTS & SNR / CNR CALCULATOR ---
                 if roi_summary_data:
                     st.subheader("📋 Measurements Table")
-                    df_roi = pd.DataFrame(roi_summary_data)
-                    st.table(df_roi)
+                    df_display = pd.DataFrame([{
+                        "ROI": d["ROI Name"],
+                        "Shape": d["Shape"],
+                        "Mean": f"{d['Mean']:.2f}",
+                        "Noise (SD)": f"{d['StdDev']:.2f}",
+                        "Min": f"{d['Min']:.1f}",
+                        "Max": f"{d['Max']:.1f}"
+                    } for d in roi_summary_data])
+                    st.table(df_display)
+                    
+                    # Advanced QC: Automatic SNR & CNR calculation if Center and Background (Left/Top) exist
+                    means = {d["ROI Name"]: d["Mean"] for d in roi_summary_data}
+                    stds = {d["ROI Name"]: d["StdDev"] for d in roi_summary_data}
+                    
+                    if "Center" in means and ("Left" in means or "Top" in means):
+                        bg_key = "Left" if "Left" in means else "Top"
+                        signal = means["Center"]
+                        noise_bg = stds[bg_key]
+                        if noise_bg > 0:
+                            snr = signal / noise_bg
+                            st.success(f"📈 **Calculated SNR (Center / {bg_key} Noise):** `{snr:.2f}`")
 
             st.markdown("---")
             col_meta1, col_meta2 = st.columns(2)
@@ -348,19 +396,18 @@ with tab2:
                     st.table(pd.DataFrame(list(info.items()), columns=["Parameter", "Value"]))
 
             with col_meta2:
-                with st.expander("📊 Full Image Statistics & Histogram"):
+                with st.expander("📊 Scientific Image Statistics & Histogram"):
                     st.write(f"- **Image Mean:** {np.mean(img_data):.2f} {unit_label}")
                     st.write(f"- **Image StdDev:** {np.std(img_data):.2f}")
                     
-                    # Professional Histogram with Units & Labels
+                    # Professional Scientific Histogram
                     fig_hist, ax_hist = plt.subplots(figsize=(4.5, 2.5))
-                    ax_hist.hist(img_data.ravel(), bins=40, color='skyblue', edgecolor='black')
+                    ax_hist.hist(img_data.ravel(), bins=50, color='skyblue', edgecolor='black')
                     ax_hist.set_title("Pixel Intensity / HU Distribution", fontsize=10)
                     ax_hist.set_xlabel(f"Pixel Value / Unit ({unit_label})", fontsize=9)
                     ax_hist.set_ylabel("Frequency (Pixel Count)", fontsize=9)
                     st.pyplot(fig_hist)
                     
-                    # Download Histogram Button
                     hist_buf = io.BytesIO()
                     fig_hist.savefig(hist_buf, format="png", bbox_inches='tight', dpi=150)
                     hist_buf.seek(0)
