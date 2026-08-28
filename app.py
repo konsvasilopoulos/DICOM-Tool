@@ -428,7 +428,7 @@ with tab2:
                         m_dist = p_dist * st.session_state.calib_spacing
                         st.info(f"📐 **Ruler Length:** `{p_dist:.1f} px` | `{m_dist:.2f} mm`")
 
-                # --- 4. LINE INTENSITY PROFILE (ESF / MTF & MTF50/MTF10) ---
+                # --- 4. LINE INTENSITY PROFILE (ESF / MTF) ---
                 with st.expander("📈 Line Intensity Profile (ESF / MTF)", expanded=False):
                     st.markdown("Define a line profile across an edge for spatial resolution analysis:")
                     st.checkbox("📏 Enable Line Intensity Profile", key="enable_line_profile")
@@ -442,28 +442,46 @@ with tab2:
                             st.number_input("X2 (#2)", 0, img_w, 3 * img_w // 4, key="lp_x2")
                             st.number_input("Y2 (#2)", 0, img_h, img_h // 2, key="lp_y2")
 
-                # --- 5. ADVANCED SNR & CNR METRICS ---
+                # --- 5. ADVANCED SNR & CNR METRICS (GRID LAYOUT) ---
                 with st.expander("🔬 Advanced SNR & CNR Metrics", expanded=False):
                     if roi_summary_data:
-                        st.markdown("**Calculated Metrics (based on active ROIs):**")
-                        for d in roi_summary_data:
-                            snr_val = (d['Mean'] / d['StdDev']) if d['StdDev'] > 0 else 0.0
-                            st.write(f"- **{d['ROI Name']} SNR:** `{snr_val:.2f}`")
+                        st.markdown("**SNR per Active ROI:**")
+                        # 2-column grid for SNR
+                        snr_list = [(d['ROI Name'], (d['Mean'] / d['StdDev']) if d['StdDev'] > 0 else 0.0) for d in roi_summary_data]
+                        for i in range(0, len(snr_list), 2):
+                            col_s1, col_s2 = st.columns(2)
+                            with col_s1:
+                                st.write(f"- **{snr_list[i][0]} SNR:** `{snr_list[i][1]:.2f}`")
+                            with col_s2:
+                                if i + 1 < len(snr_list):
+                                    st.write(f"- **{snr_list[i+1][0]} SNR:** `{snr_list[i+1][1]:.2f}`")
                         
                         means = {d["ROI Name"]: d["Mean"] for d in roi_summary_data}
                         stds = {d["ROI Name"]: d["StdDev"] for d in roi_summary_data}
+                        
                         if "Center" in means and stds.get("Center", 0) > 0:
                             c_mean, c_sd = means["Center"], stds["Center"]
                             st.markdown("---")
                             st.markdown("**CNR (vs Center):**")
+                            
+                            cnr_list = []
                             for d in roi_summary_data:
                                 if d["ROI Name"] != "Center":
                                     cnr_val = abs(d["Mean"] - c_mean) / c_sd
-                                    st.write(f"- **{d['ROI Name']} -> Center:** `{cnr_val:.2f}`")
+                                    cnr_list.append((d["ROI Name"], cnr_val))
+                            
+                            # 2-column grid for CNR
+                            for i in range(0, len(cnr_list), 2):
+                                col_c1, col_c2 = st.columns(2)
+                                with col_c1:
+                                    st.write(f"- **{cnr_list[i][0]} -> C:** `{cnr_list[i][1]:.2f}`")
+                                with col_c2:
+                                    if i + 1 < len(cnr_list):
+                                        st.write(f"- **{cnr_list[i+1][0]} -> C:** `{cnr_list[i+1][1]:.2f}`")
                     else:
                         st.warning("Enable and configure ROIs in 'Multi-ROI Analysis' to calculate metrics.")
 
-                # --- 6. UNIFORMITY & NOISE ANALYZER (WITH CT HU PASS/FAIL) ---
+                # --- 6. UNIFORMITY & NOISE ANALYZER (GRID LAYOUT) ---
                 with st.expander("🎯 Uniformity & Noise Analyzer (QC)", expanded=False):
                     if roi_summary_data:
                         means_dict = {d["ROI Name"]: d["Mean"] for d in roi_summary_data}
@@ -473,7 +491,6 @@ with tab2:
                             c_mean = means_dict["Center"]
                             st.markdown(f"**Center Reference Mean:** `{c_mean:.2f} {unit_label}`")
                             
-                            # CT Number Accuracy (Pass/Fail) ONLY FOR CT MODALITY
                             if modality == "CT":
                                 water_diff = abs(c_mean - 0.0)
                                 if water_diff <= 4.0:
@@ -485,31 +502,37 @@ with tab2:
                             if periph_names:
                                 unif_vals = []
                                 st.markdown("**Peripheral Uniformity Assessment:**")
+                                
+                                # 2-column grid for Uniformity
+                                p_items = []
                                 for p_name in periph_names:
                                     p_mean = means_dict[p_name]
                                     unif_pct = 100.0 * (1.0 - abs(p_mean - c_mean) / (abs(c_mean) + 1e-5))
                                     unif_vals.append(unif_pct)
-                                    st.write(f"- **{p_name} Uniformity:** `{unif_pct:.1f}%`")
+                                    p_items.append((p_name, unif_pct))
+                                    
+                                for i in range(0, len(p_items), 2):
+                                    col_u1, col_u2 = st.columns(2)
+                                    with col_u1:
+                                        st.write(f"- **{p_items[i][0]}:** `{p_items[i][1]:.1f}%`")
+                                    with col_u2:
+                                        if i + 1 < len(p_items):
+                                            st.write(f"- **{p_items[i+1][0]}:** `{p_items[i+1][1]:.1f}%`")
                                 
                                 avg_unif = np.mean(unif_vals)
                                 avg_noise = np.mean([stds_dict[k] for k in stds_dict.keys()])
                                 
-                                # Noise distribution / stability check
-                                c_sd = stds_dict.get("Center", 0)
-                                periph_sds = [stds_dict[k] for k in periph_names]
-                                max_sd_diff = max([abs(p_sd - c_sd) for p_sd in periph_sds]) if periph_sds else 0
-                                
                                 st.markdown("---")
-                                st.write(f"📊 **Average Uniformity:** `{avg_unif:.1f}%`")
-                                st.write(f"📉 **Estimated Noise (SD):** `{avg_noise:.2f} {unit_label}`")
-                                
-                                if max_sd_diff > 2.0:
-                                    st.info("ℹ️ **Noise Distribution Note:** Minor variation between center and peripheral noise detected.")
+                                col_sum1, col_sum2 = st.columns(2)
+                                with col_sum1:
+                                    st.write(f"📊 **Avg Unif:** `{avg_unif:.1f}%`")
+                                with col_sum2:
+                                    st.write(f"📉 **Noise (SD):** `{avg_noise:.2f}`")
                                 
                                 if avg_unif >= 90.0:
-                                    st.success("✅ **QC Status: PASS** (Uniformity >= 90%)")
+                                    st.success("✅ **QC Status: PASS** (>= 90%)")
                                 else:
-                                    st.warning("⚠️ **QC Status: CHECK** (Uniformity < 90%)")
+                                    st.warning("⚠️ **QC Status: CHECK** (< 90%)")
                             else:
                                 st.info("Enable peripheral ROIs (Top, Bottom, Left, Right) to calculate Uniformity.")
                         else:
@@ -553,7 +576,7 @@ with tab2:
                     } for d in roi_summary_data])
                     st.table(df_display)
 
-            # --- DEDICATED FULL-WIDTH LINE INTENSITY PROFILE (ESF, MTF & MTF50/10) ---
+            # --- DEDICATED FULL-WIDTH LINE INTENSITY PROFILE (ESF & MTF) ---
             if st.session_state.get("enable_line_profile", False):
                 st.markdown("---")
                 st.subheader("📈 Spatial Resolution Analysis: ESF & MTF")
@@ -598,7 +621,6 @@ with tab2:
                             dx = pixel_spacing_val if pixel_spacing_val > 0 else 1.0
                             freqs = np.fft.rfftfreq(len(lsf), d=dx)
                             
-                            # Extract MTF50 and MTF10
                             try:
                                 idx_50 = np.argmin(np.abs(mtf - 0.5))
                                 mtf_50_freq = freqs[idx_50]
