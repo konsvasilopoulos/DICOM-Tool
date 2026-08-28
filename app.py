@@ -222,18 +222,17 @@ with tab2:
                     
                     min_val, max_val = float(img_data.min()), float(img_data.max())
                     
-                    # --- COMPACT QUICK ADJUSTMENT PANEL (4 SLIDERS + FILTER) ---
-                    col_q1, col_q2, col_q3, col_q4, col_q5 = st.columns(5)
-                    with col_q1:
+                    # --- IMPROVED 2-ROW QUICK ADJUSTMENTS & FILTERS PANEL ---
+                    st.markdown("##### Quick Adjustments & Filters")
+                    q_col1, q_col2 = st.columns(2)
+                    with q_col1:
                         brightness_offset = st.slider("Brightness", -300.0, 300.0, 0.0, step=10.0)
-                    with col_q2:
-                        contrast_factor = st.slider("Contrast", 0.2, 3.0, 1.0, step=0.1)
-                    with col_q3:
                         gamma_val = st.slider("Gamma", 0.2, 3.0, 1.0, step=0.1)
-                    with col_q4:
+                    with q_col2:
+                        contrast_factor = st.slider("Contrast", 0.2, 3.0, 1.0, step=0.1)
                         sharpness_val = st.slider("Sharpness", 0.0, 3.0, 1.0, step=0.1)
-                    with col_q5:
-                        selected_filter = st.selectbox("Filter", ["None", "Smoothing / Blur", "Histogram Equalization"])
+                    
+                    selected_filter = st.selectbox("Spatial Filter", ["None", "Smoothing / Blur", "Histogram Equalization"])
                     
                     # Apply Brightness & Contrast
                     img_adjusted = img_data + brightness_offset
@@ -358,7 +357,7 @@ with tab2:
                     st.selectbox("Color Palette", ["bone", "gray", "jet", "hot", "viridis"], key="colormap_choice")
                     st.checkbox("Invert Black/White (Invert Image)", key="invert_choice")
 
-                # --- 2. MULTI-ROI ANALYSIS (Compact Inline Layout) ---
+                # --- 2. MULTI-ROI ANALYSIS ---
                 with st.expander("🎯 Multi-ROI Analysis", expanded=True):
                     st.markdown("Select ROIs to display & analyze:")
                     
@@ -387,7 +386,7 @@ with tab2:
                                 st.slider(f"Radius ({r_name})", min_value=5, max_value=50, value=20, key=f"rad_{r_name}")
                             st.divider()
 
-                # --- 3. DISTANCE RULER & SMART CALIBRATION ---
+                # --- 3. DISTANCE RULER & CALIBRATION ---
                 with st.expander("📏 Distance Ruler & Calibration", expanded=False):
                     auto_sp = 1.0
                     if hasattr(ds, "PixelSpacing") and ds.PixelSpacing:
@@ -416,7 +415,7 @@ with tab2:
                         m_dist = p_dist * st.session_state.calib_spacing
                         st.info(f"📐 **Ruler Length:** `{p_dist:.1f} px` | `{m_dist:.2f} mm`")
 
-                # --- 4. LINE INTENSITY PROFILE (Placeholder / Next Step) ---
+                # --- 4. LINE INTENSITY PROFILE ---
                 with st.expander("📈 Line Intensity Profile", expanded=False):
                     st.info("Coming soon: Interactive profile plot across custom line segments for MTF/ESF analysis.")
 
@@ -426,7 +425,7 @@ with tab2:
                         st.markdown("**Calculated Metrics (based on active ROIs):**")
                         for d in roi_summary_data:
                             snr_val = (d['Mean'] / d['StdDev']) if d['StdDev'] > 0 else 0.0
-                            st.write(- f"**{d['ROI Name']} SNR:** `{snr_val:.2f}`")
+                            st.write(f"- **{d['ROI Name']} SNR:** `{snr_val:.2f}`")
                         
                         means = {d["ROI Name"]: d["Mean"] for d in roi_summary_data}
                         stds = {d["ROI Name"]: d["StdDev"] for d in roi_summary_data}
@@ -441,11 +440,27 @@ with tab2:
                     else:
                         st.warning("Enable and configure ROIs in 'Multi-ROI Analysis' to calculate metrics.")
 
-                # --- 6. DICOM HEADER EDITOR & FIXER (Placeholder) ---
+                # --- 6. DICOM HEADER EDITOR & FIXER ---
                 with st.expander("✏️ DICOM Header Editor & Fixer", expanded=False):
-                    st.info("Coming soon: Live tag modification and metadata correction tools.")
+                    st.markdown("Modify core metadata tags and download the updated DICOM file:")
+                    new_pname = st.text_input("Patient Name", value=str(getattr(ds, "PatientName", "")))
+                    new_pid = st.text_input("Patient ID", value=str(getattr(ds, "PatientID", "")))
+                    new_study = st.text_input("Study Description", value=str(getattr(ds, "StudyDescription", "")))
+                    new_inst = st.text_input("Institution Name", value=str(getattr(ds, "InstitutionName", "")))
+                    
+                    if st.button("💾 Apply Edits & Download DICOM"):
+                        ds.PatientName = new_pname
+                        ds.PatientID = new_pid
+                        ds.StudyDescription = new_study
+                        ds.InstitutionName = new_inst
+                        
+                        edited_bytes = io.BytesIO()
+                        ds.save_as(edited_bytes)
+                        edited_bytes.seek(0)
+                        st.success("Header updated successfully!")
+                        st.download_button("📥 Download Edited .dcm", edited_bytes, file_name="edited_file.dcm", mime="application/octet-stream")
 
-                # --- 7. AUTOMATED QC REPORT GENERATOR (Placeholder) ---
+                # --- 7. AUTOMATED QC REPORT GENERATOR ---
                 with st.expander("📄 Automated QC Report Generator", expanded=False):
                     st.info("Coming soon: Export complete QA/QC reports with images and tables.")
 
