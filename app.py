@@ -310,18 +310,18 @@ with tab2:
                             y1, y2 = max(0, pos_y - r_size//2), min(img_h, pos_y + r_size//2)
                             roi_pixels = img_data[y1:y2, x1:x2]
                             
-                            rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=1.5, edgecolor=rc["color"], facecolor='none')
+                            rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=1.0, edgecolor=rc["color"], facecolor='none')
                             ax.add_patch(rect)
-                            ax.text(x1, y1 - 5, r_name, color=rc["color"], fontsize=9, weight='bold')
+                            ax.text(x1, y1 - 4, r_name, color=rc["color"], fontsize=8, weight='bold')
                         else:
                             r_radius = st.session_state.get(f"rad_{r_name}", 20)
                             y_grid, x_grid = np.ogrid[:img_h, :img_w]
                             mask = (x_grid - pos_x)**2 + (y_grid - pos_y)**2 <= r_radius**2
                             roi_pixels = img_data[mask]
                             
-                            circle = patches.Circle((pos_x, pos_y), r_radius, linewidth=1.5, edgecolor=rc["color"], facecolor='none')
+                            circle = patches.Circle((pos_x, pos_y), r_radius, linewidth=1.0, edgecolor=rc["color"], facecolor='none')
                             ax.add_patch(circle)
-                            ax.text(pos_x - r_radius, pos_y - r_radius - 5, r_name, color=rc["color"], fontsize=9, weight='bold')
+                            ax.text(pos_x - r_radius, pos_y - r_radius - 4, r_name, color=rc["color"], fontsize=8, weight='bold')
                         
                         if roi_pixels.size > 0:
                             roi_summary_data.append({
@@ -333,7 +333,7 @@ with tab2:
                                 "Max": np.max(roi_pixels)
                             })
 
-                    # --- RENDER DISTANCE RULER IF ENABLED ---
+                    # --- RENDER DISTANCE RULER (THIN LINE) ---
                     enable_ruler = st.session_state.get("enable_ruler", False)
                     pixel_spacing_val = st.session_state.get("calib_spacing", 1.0)
 
@@ -343,12 +343,12 @@ with tab2:
                         rx2 = st.session_state.get("ruler_x2", 3 * img_w // 4)
                         ry2 = st.session_state.get("ruler_y2", img_h // 2)
                         
-                        ax.plot([rx1, rx2], [ry1, ry2], color='yellow', linewidth=2, marker='o')
+                        ax.plot([rx1, rx2], [ry1, ry2], color='yellow', linewidth=1.2, marker='o', markersize=3)
                         dist_pixels = np.sqrt((rx2 - rx1)**2 + (ry2 - ry1)**2)
                         dist_mm = dist_pixels * pixel_spacing_val
-                        ax.text((rx1+rx2)/2, ((ry1+ry2)/2) - 10, f"{dist_mm:.1f} mm", color='yellow', fontsize=10, weight='bold', backgroundcolor='black')
+                        ax.text((rx1+rx2)/2, ((ry1+ry2)/2) - 8, f"{dist_mm:.1f} mm", color='yellow', fontsize=9, weight='bold', backgroundcolor='black')
 
-                    # --- RENDER LINE INTENSITY PROFILE OVERLAY ON VIEWER IF ENABLED ---
+                    # --- RENDER LINE INTENSITY PROFILE OVERLAY (#1 & #2 THIN MARKERS) ---
                     enable_lp = st.session_state.get("enable_line_profile", False)
                     if enable_lp:
                         lx1 = st.session_state.get("lp_x1", img_w // 4)
@@ -356,9 +356,9 @@ with tab2:
                         lx2 = st.session_state.get("lp_x2", 3 * img_w // 4)
                         ly2 = st.session_state.get("lp_y2", img_h // 2)
                         
-                        ax.plot([lx1, lx2], [ly1, ly2], color='cyan', linewidth=2.5, linestyle='--', marker='x', markersize=8)
-                        ax.text(lx1, ly1 - 10, "Start", color='cyan', fontsize=9, weight='bold', backgroundcolor='black')
-                        ax.text(lx2, ly2 - 10, "End", color='cyan', fontsize=9, weight='bold', backgroundcolor='black')
+                        ax.plot([lx1, lx2], [ly1, ly2], color='cyan', linewidth=1.2, linestyle='--', marker='+', markersize=6)
+                        ax.text(lx1 + 3, ly1 - 3, "#1", color='cyan', fontsize=8, weight='bold', backgroundcolor='black')
+                        ax.text(lx2 + 3, ly2 - 3, "#2", color='cyan', fontsize=8, weight='bold', backgroundcolor='black')
 
                     st.pyplot(fig)
                     
@@ -441,11 +441,11 @@ with tab2:
                     if st.session_state.get("enable_line_profile", False):
                         lp_col1, lp_col2 = st.columns(2)
                         with lp_col1:
-                            st.number_input("Start X1", 0, img_w, img_w // 4, key="lp_x1")
-                            st.number_input("Start Y1", 0, img_h, img_h // 2, key="lp_y1")
+                            st.number_input("X1 (#1)", 0, img_w, img_w // 4, key="lp_x1")
+                            st.number_input("Y1 (#1)", 0, img_h, img_h // 2, key="lp_y1")
                         with lp_col2:
-                            st.number_input("End X2", 0, img_w, 3 * img_w // 4, key="lp_x2")
-                            st.number_input("End Y2", 0, img_h, img_h // 2, key="lp_y2")
+                            st.number_input("X2 (#2)", 0, img_w, 3 * img_w // 4, key="lp_x2")
+                            st.number_input("Y2 (#2)", 0, img_h, img_h // 2, key="lp_y2")
 
                 # --- 5. ADVANCED SNR & CNR METRICS ---
                 with st.expander("🔬 Advanced SNR & CNR Metrics", expanded=False):
@@ -468,7 +468,45 @@ with tab2:
                     else:
                         st.warning("Enable and configure ROIs in 'Multi-ROI Analysis' to calculate metrics.")
 
-                # --- 6. DICOM HEADER EDITOR & FIXER ---
+                # --- 6. UNIFORMITY & NOISE ANALYZER (NEW QC TOOL) ---
+                with st.expander("🎯 Uniformity & Noise Analyzer (QC)", expanded=False):
+                    if roi_summary_data:
+                        means_dict = {d["ROI Name"]: d["Mean"] for d in roi_summary_data}
+                        stds_dict = {d["ROI Name"]: d["StdDev"] for d in roi_summary_data}
+                        
+                        if "Center" in means_dict:
+                            c_mean = means_dict["Center"]
+                            st.markdown(f"**Center Reference Mean:** `{c_mean:.2f} {unit_label}`")
+                            
+                            periph_names = [k for k in means_dict.keys() if k != "Center"]
+                            if periph_names:
+                                unif_vals = []
+                                st.markdown("**Peripheral Uniformity Assessment:**")
+                                for p_name in periph_names:
+                                    p_mean = means_dict[p_name]
+                                    # Uniformity formula: 100 * (1 - |P_mean - C_mean| / C_mean)
+                                    unif_pct = 100.0 * (1.0 - abs(p_mean - c_mean) / (abs(c_mean) + 1e-5))
+                                    unif_vals.append(unif_pct)
+                                    st.write(f"- **{p_name} Uniformity:** `{unif_pct:.1f}%`")
+                                
+                                avg_unif = np.mean(unif_vals)
+                                avg_noise = np.mean([stds_dict[k] for k in stds_dict.keys()])
+                                st.markdown("---")
+                                st.write(f"📊 **Average Uniformity:** `{avg_unif:.1f}%`")
+                                st.write(f"📉 **Estimated Noise (SD):** `{avg_noise:.2f} {unit_label}`")
+                                
+                                if avg_unif >= 90.0:
+                                    st.success("✅ **QC Status: PASS** (Uniformity >= 90%)")
+                                else:
+                                    st.warning("⚠️ **QC Status: CHECK** (Uniformity < 90%)")
+                            else:
+                                st.info("Enable peripheral ROIs (Top, Bottom, Left, Right) to calculate Uniformity.")
+                        else:
+                            st.warning("Enable the 'Center' ROI in Multi-ROI Analysis to perform Uniformity QC.")
+                    else:
+                        st.warning("Enable ROIs in Multi-ROI Analysis first.")
+
+                # --- 7. DICOM HEADER EDITOR & FIXER ---
                 with st.expander("✏️ DICOM Header Editor & Fixer", expanded=False):
                     st.markdown("Modify core metadata tags and download the updated DICOM file:")
                     new_pname = st.text_input("Patient Name", value=str(getattr(ds, "PatientName", "")))
@@ -488,7 +526,7 @@ with tab2:
                         st.success("Header updated successfully!")
                         st.download_button("📥 Download Edited .dcm", edited_bytes, file_name="edited_file.dcm", mime="application/octet-stream")
 
-                # --- 7. AUTOMATED QC REPORT GENERATOR ---
+                # --- 8. AUTOMATED QC REPORT GENERATOR ---
                 with st.expander("📄 Automated QC Report Generator", expanded=False):
                     st.info("Coming soon: Export complete QA/QC reports with images and tables.")
 
@@ -546,7 +584,6 @@ with tab2:
                         if fft_vals[0] > 0:
                             mtf = fft_vals / fft_vals[0] # normalize MTF(0) = 1
                             
-                            # spatial frequency axis (cycles/mm)
                             dx = pixel_spacing_val if pixel_spacing_val > 0 else 1.0
                             freqs = np.fft.rfftfreq(len(lsf), d=dx)
                             
