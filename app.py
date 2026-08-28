@@ -9,6 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from PIL import Image, ImageFilter, ImageOps, ImageEnhance
+import matplotlib.ticker as ticker
 
 st.set_page_config(
     page_title="MedPhys DICOM Toolkit",
@@ -446,7 +447,6 @@ with tab2:
                 with st.expander("🔬 Advanced SNR & CNR Metrics", expanded=False):
                     if roi_summary_data:
                         st.markdown("**SNR per Active ROI:**")
-                        # 2-column grid for SNR
                         snr_list = [(d['ROI Name'], (d['Mean'] / d['StdDev']) if d['StdDev'] > 0 else 0.0) for d in roi_summary_data]
                         for i in range(0, len(snr_list), 2):
                             col_s1, col_s2 = st.columns(2)
@@ -470,7 +470,6 @@ with tab2:
                                     cnr_val = abs(d["Mean"] - c_mean) / c_sd
                                     cnr_list.append((d["ROI Name"], cnr_val))
                             
-                            # 2-column grid for CNR
                             for i in range(0, len(cnr_list), 2):
                                 col_c1, col_c2 = st.columns(2)
                                 with col_c1:
@@ -481,8 +480,8 @@ with tab2:
                     else:
                         st.warning("Enable and configure ROIs in 'Multi-ROI Analysis' to calculate metrics.")
 
-                # --- 6. UNIFORMITY & NOISE ANALYZER (GRID LAYOUT) ---
-                with st.expander("🎯 Uniformity & Noise Analyzer (QC)", expanded=False):
+                # --- 6. UNIFORMITY & NOISE ANALYZER (CLEAN TITLE) ---
+                with st.expander("🎯 Uniformity & Noise Analyzer", expanded=False):
                     if roi_summary_data:
                         means_dict = {d["ROI Name"]: d["Mean"] for d in roi_summary_data}
                         stds_dict = {d["ROI Name"]: d["StdDev"] for d in roi_summary_data}
@@ -503,7 +502,6 @@ with tab2:
                                 unif_vals = []
                                 st.markdown("**Peripheral Uniformity Assessment:**")
                                 
-                                # 2-column grid for Uniformity
                                 p_items = []
                                 for p_name in periph_names:
                                     p_mean = means_dict[p_name]
@@ -668,15 +666,26 @@ with tab2:
                     st.table(pd.DataFrame(list(info.items()), columns=["Parameter", "Value"]))
 
             with col_meta2:
-                with st.expander("📊 Scientific Image Statistics & Histogram"):
+                # --- MODALITY-AWARE SCIENTIFIC HISTOGRAM WITH SCIENTIFIC NOTATION ---
+                hist_title = "Hounsfield Units (HU) Distribution" if modality == "CT" else "Pixel Intensity Distribution"
+                xlabel_text = f"Hounsfield Units ({unit_label})" if modality == "CT" else f"Pixel Intensity ({unit_label})"
+                
+                with st.expander(f"📊 Scientific Image Statistics & {hist_title}"):
                     st.write(f"- **Image Mean:** {np.mean(img_data):.2f} {unit_label}")
                     st.write(f"- **Image StdDev:** {np.std(img_data):.2f}")
                     
                     fig_hist, ax_hist = plt.subplots(figsize=(4.5, 2.5))
                     ax_hist.hist(img_data.ravel(), bins=50, color='skyblue', edgecolor='black')
-                    ax_hist.set_title("Pixel Intensity / HU Distribution", fontsize=10)
-                    ax_hist.set_xlabel(f"Pixel Value / Unit ({unit_label})", fontsize=9)
+                    ax_hist.set_title(hist_title, fontsize=10)
+                    ax_hist.set_xlabel(xlabel_text, fontsize=9)
                     ax_hist.set_ylabel("Frequency (Pixel Count)", fontsize=9)
+                    
+                    # Apply Scientific Notation formatter to Y-axis for clean scientific presentation
+                    formatter = ticker.ScalarFormatter(useMathText=True)
+                    formatter.set_scientific(True)
+                    formatter.set_powerlimits((0, 0))
+                    ax_hist.yaxis.set_major_formatter(formatter)
+                    
                     st.pyplot(fig_hist)
                     
                     hist_buf = io.BytesIO()
