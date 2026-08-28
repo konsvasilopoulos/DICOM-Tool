@@ -8,8 +8,6 @@ import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from PIL import Image
-from streamlit_drawable_canvas import st_canvas
 
 st.set_page_config(
     page_title="MedPhys DICOM Toolkit",
@@ -262,71 +260,92 @@ with tab2:
                     vmin = wc - ww / 2
                     vmax = wc + ww / 2
                     
-                    # Normalize image to 0-255 for interactive canvas preview
-                    img_clipped = np.clip(img_data, vmin, vmax)
-                    img_norm = ((img_clipped - vmin) / (vmax - vmin + 1e-5) * 255).astype(np.uint8)
-                    pil_img = Image.fromarray(img_norm).convert("RGB")
-                    
+                    # --- Multi-ROI Management (Named ROIs: Center, Top, Bottom, Left, Right) ---
                     st.markdown("---")
-                    st.subheader("🎯 Interactive ROI Canvas (Draw/Select on Image)")
-                    st.markdown("Use the rectangle or circle drawing tool on the canvas below to inspect specific regions.")
+                    st.subheader("🎯 Multi-ROI Positioning & QC Analysis")
+                    st.markdown("Ρυθμίστε τη θέση και το μέγεθος των 5 καθορισμένων ROIs (Center, Top, Bottom, Left, Right) πάνω στην εικόνα:")
                     
-                    drawing_mode = st.selectbox("Drawing Tool", ["rect", "circle"], index=0)
+                    img_h, img_w = img_data.shape
+                    cx_default, cy_default = img_w // 2, img_h // 2
                     
-                    # Canvas component for interactive drawing
-                    canvas_result = st_canvas(
-                        fill_color="rgba(255, 0, 0, 0.2)",
-                        stroke_width=2,
-                        stroke_color="red",
-                        background_image=pil_img,
-                        update_streamlit=True,
-                        height=400,
-                        width=400,
-                        drawing_mode=drawing_mode,
-                        key="canvas",
+                    # ROI Definitions with fixed names & logical default offsets
+                    roi_configs = [
+                        {"name": "Center", "default_dx": 0, "default_dy": 0, "color": "red"},
+                        {"name": "Top", "default_dx": 0, "default_dy": -int(img_h * 0.25), "color": "blue"},
+                        {"name": "Bottom", "default_dx": 0, "default_dy": int(img_h * 0.25), "color": "green"},
+                        {"name": "Left", "default_dx": -int(img_w * 0.25), "default_dy": 0, "color": "orange"},
+                        {"name": "Right", "default_dx": int(img_w * 0.25), "default_dy": 0, "color": "purple"}
+                    ]
+                    
+                    fig, ax = plt.subplots(figsize=(4.5, 4.5))
+                    ax.imshow(img_data, cmap=plt.cm.bone, vmin=vmin, vmax=vmax)
+                    ax.axis('off')
+                    
+                    roi_summary_data = []
+                    
+                    # Let user choose active ROIs to display (up to 5)
+                    active_roi_names = st.multiselect(
+                        "Ενεργά ROIs προς εμφάνιση και μέτρηση:", 
+                        [rc["name"] for rc in roi_configs], 
+                        default=["Center", "Top", "Bottom", "Left", "Right"]
                     )
                     
-                    # Extract ROI pixels from drawn objects
-                    roi_pixels_list = []
-                    if canvas_result.json_data is not None:
-                        objects = canvas_result.json_data["objects"]
-                        if objects:
-                            obj = objects[-1]
-                            scale_x = img_data.shape[1] / 400.0
-                            scale_y = img_data.shape[0] / 400.0
+                    for rc in roi_configs:
+                        r_name = rc["name"]
+                        if r_name not in active_roi_names:
+                            continue
                             
-                            if obj["type"] == "rect":
-                                left = int(obj["left"] * scale_x)
-                                top = int(obj["top"] * scale_y)
-                                width = int(obj["width"] * obj["scaleX"] * scale_x)
-                                height = int(obj["height"] * obj["scaleY"] * scale_y)
+                        with st.expander(f"⚙️ Ρυθμίσεις για {r_name} ROI", expanded=(r_name == "Center")):
+                            col_r1, col_r2 = st.columns(2)
+                            with col_r1:
+                                r_shape = st.selectbox(f"Σχήμα {r_name}", ["Circle", "Square"], key=f"shape_{r_name}")
+                                pos_x = st.slider(f"Θέση X ({r_name})", min_value=0, max_value=img_w, value=cx_default + rc["default_dx"], key=f"x_{r_name}")
+                            with col_r2:
+                                pos_y = st.slider(f"Θέση Y ({r_name})", min_value=0, max_value=img_h, value=cy_default + rc["default_dy"], key=f"y_{r_name}")
                                 
-                                x1, x2 = max(0, left), min(img_data.shape[1], left + width)
-                                y1, y2 = max(0, top), min(img_data.shape[0], top + height)
-                                roi_pixels_list = img_data[y1:y2, x1:x2].ravel()
-                                
-                            elif obj["type"] == "circle":
-                                cx = int((obj["left"] + obj["radius"]) * scale_x)
-                                cy = int((obj["top"] + obj["radius"]) * scale_y)
-                                radius = int(obj["radius"] * obj["scaleX"] * scale_x)
-                                
-                                y, x = np.ogrid[:img_data.shape[0], :img_data.shape[1]]
-                                mask = (x - cx)**2 + (y - cy)**2 <= radius**2
-                                roi_pixels_list = img_data[mask]
+                                max_dim = min(img_h, img_w) // 4
+                                if r_shape == "Square":
+                                    r_size = st.slider(f"Μέγεθος (Πλευρά) {r_name}", min_value=5, max_value=max_dim*2, value=30, key=f"size_{r_name}")
+                                    x1, x2 = max(0, pos_x - r_size//2), min(img_w, pos_x + r_size//2)
+                                    y1, y2 = max(0, pos_y - r_size//2), min(img_h, pos_y + r_size//2)
+                                    roi_pixels = img_data[y1:y2, x1:x2]
+                                    
+                                    rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=1.5, edgecolor=rc["color"], facecolor='none')
+                                    ax.add_patch(rect)
+                                    ax.text(x1, y1 - 5, r_name, color=rc["color"], fontsize=9, weight='bold')
+                                else:
+                                    r_radius = st.slider(f"Ακτίνα {r_name}", min_value=5, max_value=max_dim, value=20, key=f"rad_{r_name}")
+                                    y_grid, x_grid = np.ogrid[:img_h, :img_w]
+                                    mask = (x_grid - pos_x)**2 + (y_grid - pos_y)**2 <= r_radius**2
+                                    roi_pixels = img_data[mask]
+                                    
+                                    circle = patches.Circle((pos_x, pos_y), r_radius, linewidth=1.5, edgecolor=rc["color"], facecolor='none')
+                                    ax.add_patch(circle)
+                                    ax.text(pos_x - r_radius, pos_y - r_radius - 5, r_name, color=rc["color"], fontsize=9, weight='bold')
+                            
+                            if roi_pixels.size > 0:
+                                roi_summary_data.append({
+                                    "ROI Name": r_name,
+                                    "Shape": r_shape,
+                                    "Mean": f"{np.mean(roi_pixels):.2f}",
+                                    "Noise (StdDev)": f"{np.std(roi_pixels):.2f}",
+                                    "Min": f"{np.min(roi_pixels):.1f}",
+                                    "Max": f"{np.max(roi_pixels):.1f}"
+                                })
                     
-                    # ROI Statistics Output
-                    if len(roi_pixels_list) > 0:
-                        with st.expander("📌 Drawn ROI Statistics Results", expanded=True):
-                            r_mean = np.mean(roi_pixels_list)
-                            r_std = np.std(roi_pixels_list)
-                            r_min = np.min(roi_pixels_list)
-                            r_max = np.max(roi_pixels_list)
-                            st.write(f"- **ROI Mean:** {r_mean:.2f} {unit_label}")
-                            st.write(f"- **ROI Noise (StdDev):** {r_std:.2f} {unit_label}")
-                            st.write(f"- **ROI Min Value:** {r_min:.1f} {unit_label}")
-                            st.write(f"- **ROI Max Value:** {r_max:.1f} {unit_label}")
-                    else:
-                        st.info("💡 Draw a rectangle or circle directly on the image above to calculate ROI statistics.")
+                    st.pyplot(fig)
+                    
+                    # PNG Download Button
+                    img_buf = io.BytesIO()
+                    fig.savefig(img_buf, format="png", bbox_inches='tight', dpi=150)
+                    img_buf.seek(0)
+                    st.download_button("📥 Download Preview as PNG", img_buf, file_name="dicom_multiroi_preview.png", mime="image/png")
+                    
+                    # Multi-ROI Summary Table Output
+                    if roi_summary_data:
+                        st.subheader("📋 Ενιαίος Πίνακας Μετρήσεων Multi-ROI")
+                        df_roi = pd.DataFrame(roi_summary_data)
+                        st.table(df_roi)
                     
                     with st.expander("📊 Full Image Statistics & Histogram"):
                         st.write(f"- **Image Mean:** {np.mean(img_data):.2f} {unit_label}")
