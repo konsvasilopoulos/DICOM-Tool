@@ -8,6 +8,8 @@ import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from PIL import Image
+from streamlit_drawable_canvas import st_canvas
 
 st.set_page_config(
     page_title="MedPhys DICOM Toolkit",
@@ -232,18 +234,22 @@ with tab2:
                     
                     min_val, max_val = float(img_data.min()), float(img_data.max())
                     
-                    # Window Presets
-                    preset = st.selectbox("Window Presets", ["Custom", "Soft Tissue (C:40, W:400)", "Bone (C:400, W:1500)", "Lung (C:-600, W:1500)", "Brain (C:40, W:80)"])
-                    
-                    if preset == "Soft Tissue (C:40, W:400)":
-                        default_center, default_width = 40.0, 400.0
-                    elif preset == "Bone (C:400, W:1500)":
-                        default_center, default_width = 400.0, 1500.0
-                    elif preset == "Lung (C:-600, W:1500)":
-                        default_center, default_width = -600.0, 1500.0
-                    elif preset == "Brain (C:40, W:80)":
-                        default_center, default_width = 40.0, 80.0
+                    # Modality-Aware Window Controls (Presets ONLY for CT)
+                    if modality == "CT":
+                        preset = st.selectbox("Window Presets (CT Only)", ["Custom", "Soft Tissue (C:40, W:400)", "Bone (C:400, W:1500)", "Lung (C:-600, W:1500)", "Brain (C:40, W:80)"])
+                        if preset == "Soft Tissue (C:40, W:400)":
+                            default_center, default_width = 40.0, 400.0
+                        elif preset == "Bone (C:400, W:1500)":
+                            default_center, default_width = 400.0, 1500.0
+                        elif preset == "Lung (C:-600, W:1500)":
+                            default_center, default_width = -600.0, 1500.0
+                        elif preset == "Brain (C:40, W:80)":
+                            default_center, default_width = 40.0, 80.0
+                        else:
+                            default_center = float(np.mean(img_data))
+                            default_width = float(max(1.0, max_val - min_val))
                     else:
+                        st.markdown("*Radiography / Direct Intensity Contrast Controls*")
                         default_center = float(np.mean(img_data))
                         default_width = float(max(1.0, max_val - min_val))
                     
@@ -256,58 +262,72 @@ with tab2:
                     vmin = wc - ww / 2
                     vmax = wc + ww / 2
                     
-                    # Plotting Image & ROI Overlay
-                    fig, ax = plt.subplots(figsize=(4.5, 4.5))
-                    im = ax.imshow(img_data, cmap=plt.cm.bone, vmin=vmin, vmax=vmax)
-                    ax.axis('off')
+                    # Normalize image to 0-255 for interactive canvas preview
+                    img_clipped = np.clip(img_data, vmin, vmax)
+                    img_norm = ((img_clipped - vmin) / (vmax - vmin + 1e-5) * 255).astype(np.uint8)
+                    pil_img = Image.fromarray(img_norm).convert("RGB")
                     
-                    # ROI Controls & Calculations
                     st.markdown("---")
-                    st.subheader("🎯 Region of Interest (ROI) Analysis")
-                    roi_shape = st.radio("ROI Shape", ["Square", "Circle"], horizontal=True)
+                    st.subheader("🎯 Interactive ROI Canvas (Draw/Select on Image)")
+                    st.markdown("Use the rectangle or circle drawing tool on the canvas below to inspect specific regions.")
                     
-                    img_h, img_w = img_data.shape
-                    cy, cx = img_h // 2, img_w // 2
-                    max_dim = min(img_h, img_w) // 2
+                    drawing_mode = st.selectbox("Drawing Tool", ["rect", "circle"], index=0)
                     
-                    roi_pixels = np.array([])
-                    if roi_shape == "Square":
-                        rw = st.slider("Square Width (px)", min_value=5, max_value=max_dim*2, value=min(50, max_dim))
-                        rh = st.slider("Square Height (px)", min_value=5, max_value=max_dim*2, value=min(50, max_dim))
-                        x1, x2 = max(0, cx - rw//2), min(img_w, cx + rw//2)
-                        y1, y2 = max(0, cy - rh//2), min(img_h, cy + rh//2)
-                        roi_pixels = img_data[y1:y2, x1:x2]
-                        
-                        rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=1.5, edgecolor='red', facecolor='none')
-                        ax.add_patch(rect)
-                    else:
-                        radius = st.slider("Circle Radius (px)", min_value=5, max_value=max_dim, value=min(25, max_dim))
-                        y, x = np.ogrid[:img_h, :img_w]
-                        mask = (x - cx)**2 + (y - cy)**2 <= radius**2
-                        roi_pixels = img_data[mask]
-                        
-                        circle = patches.Circle((cx, cy), radius, linewidth=1.5, edgecolor='red', facecolor='none')
-                        ax.add_patch(circle)
+                    # Canvas component for interactive drawing
+                    canvas_result = st_canvas(
+                        fill_color="rgba(255, 0, 0, 0.2)",
+                        stroke_width=2,
+                        stroke_color="red",
+                        background_image=pil_img,
+                        update_streamlit=True,
+                        height=400,
+                        width=400,
+                        drawing_mode=drawing_mode,
+                        key="canvas",
+                    )
                     
-                    st.pyplot(fig)
-                    
-                    # PNG Download Button
-                    img_buf = io.BytesIO()
-                    fig.savefig(img_buf, format="png", bbox_inches='tight', dpi=150)
-                    img_buf.seek(0)
-                    st.download_button("📥 Download Preview as PNG", img_buf, file_name="dicom_preview.png", mime="image/png")
+                    # Extract ROI pixels from drawn objects
+                    roi_pixels_list = []
+                    if canvas_result.json_data is not None:
+                        objects = canvas_result.json_data["objects"]
+                        if objects:
+                            # Take the latest drawn object
+                            obj = objects[-1]
+                            scale_x = img_data.shape[1] / 400.0
+                            scale_y = img_data.shape[0] / 400.0
+                            
+                            if obj["type"] == "rect":
+                                left = int(obj["left"] * scale_x)
+                                top = int(obj["top"] * scale_y)
+                                width = int(obj["width"] * obj["scaleX"] * scale_x)
+                                height = int(obj["height"] * obj["scaleY"] * scale_y)
+                                
+                                x1, x2 = max(0, left), min(img_data.shape[1], left + width)
+                                y1, y2 = max(0, top), min(img_data.shape[0], top + height)
+                                roi_pixels_list = img_data[y1:y2, x1:x2].ravel()
+                                
+                            elif obj["type"] == "circle":
+                                cx = int((obj["left"] + obj["radius"]) * scale_x)
+                                cy = int((obj["top"] + obj["radius"]) * scale_y)
+                                radius = int(obj["radius"] * obj["scaleX"] * scale_x)
+                                
+                                y, x = np.ogrid[:img_data.shape[0], :img_data.shape[1]]
+                                mask = (x - cx)**2 + (y - cy)**2 <= radius**2
+                                roi_pixels_list = img_data[mask]
                     
                     # ROI Statistics Output
-                    if roi_pixels.size > 0:
-                        with st.expander("📌 ROI Statistics Results", expanded=True):
-                            r_mean = np.mean(roi_pixels)
-                            r_std = np.std(roi_pixels)
-                            r_min = np.min(roi_pixels)
-                            r_max = np.max(roi_pixels)
+                    if len(roi_pixels_list) > 0:
+                        with st.expander("📌 Drawn ROI Statistics Results", expanded=True):
+                            r_mean = np.mean(roi_pixels_list)
+                            r_std = np.std(roi_pixels_list)
+                            r_min = np.min(roi_pixels_list)
+                            r_max = np.max(roi_pixels_list)
                             st.write(f"- **ROI Mean:** {r_mean:.2f} {unit_label}")
                             st.write(f"- **ROI Noise (StdDev):** {r_std:.2f} {unit_label}")
                             st.write(f"- **ROI Min Value:** {r_min:.1f} {unit_label}")
                             st.write(f"- **ROI Max Value:** {r_max:.1f} {unit_label}")
+                    else:
+                        st.info("💡 Draw a rectangle or circle directly on the image above to calculate ROI statistics.")
                     
                     with st.expander("📊 Full Image Statistics & Histogram"):
                         st.write(f"- **Image Mean:** {np.mean(img_data):.2f} {unit_label}")
@@ -383,7 +403,7 @@ with tab3:
                                     arr = ds.pixel_array.astype(np.float32)
                                     if modality == "CT":
                                         slope = float(getattr(ds, "RescaleSlope", 1.0))
-                                        intercept = float(getattr(ds, "RescaleIntercept", 0.0))
+                               , intercept = float(getattr(ds, "RescaleIntercept", 0.0))
                                         arr = arr * slope + intercept
                                     records[group_key]["Mean Pixel Value"].append(np.mean(arr))
                                     
