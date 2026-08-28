@@ -1,5 +1,7 @@
 streamlit
 pydicom
+numpy
 pandas
 matplotlib
-numpy
+Pillow
+streamlit-drawable-canvas
