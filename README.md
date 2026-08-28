@@ -28,5 +28,4 @@ A lightweight, open-source web application built with Python and Streamlit, desi
 
 ## Installation & Execution
 
-* **You can find the app here:**
-* https://dicom-tool-fcpymgt4csqtakjfw2d35r.streamlit.app/ 
+* **You can find the app here:** https://dicom-tool-fcpymgt4csqtakjfw2d35r.streamlit.app/ 
