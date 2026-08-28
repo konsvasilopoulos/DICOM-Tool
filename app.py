@@ -182,9 +182,7 @@ with tab1:
 
 with tab2:
     st.header("🔍 DICOM Inspector & Diagnostic Viewer")
-    st.markdown("Upload a single diagnostic DICOM file (CT, DX, CR, MG, etc.) or use the demo generators.")
-
-    uploaded_dcm = st.file_uploader("Upload DICOM File (.dcm)", type=["dcm", "IMA"], key="inspect_dcm")
+    uploaded_dcm = st.file_uploader("Upload a single DICOM file (.dcm)", type=["dcm", "IMA"], key="inspect_dcm")
 
     if uploaded_dcm is not None:
         try:
@@ -192,33 +190,18 @@ with tab2:
             modality = getattr(ds, "Modality", "UNKNOWN")
             
             if modality == "CT":
-                st.success(f"📌 Detected Modality: **CT (Computed Tomography)** — Hounsfield Units (HU) scaling active.")
+                st.success(f"📌 Detected Modality: **CT** — Hounsfield Units active.")
             elif modality in ["DX", "CR", "MG"]:
-                st.info(f"📌 Detected Modality: **Radiography / Projection Imaging ({modality})** — Raw Pixel Intensity mode active.")
+                st.info(f"📌 Detected Modality: **Radiography ({modality})** — Raw Pixel Intensity mode active.")
             else:
-                st.warning(f"📌 Detected Modality: **{modality}** — Standard DICOM viewer mode active.")
+                st.warning(f"📌 Detected Modality: **{modality}**")
 
-            col1, col2 = st.columns([1, 1])
+            # --- NEW PROFESSIONAL 2-COLUMN LAYOUT ---
+            col_left_viewer, col_right_controls = st.columns([1.1, 0.9], gap="large")
             
-            with col1:
-                st.subheader("Key Metadata Summary")
-                info = {
-                    "Modality": modality,
-                    "Patient ID": getattr(ds, "PatientID", "N/A"),
-                    "Study Description": getattr(ds, "StudyDescription", "N/A"),
-                    "Manufacturer": getattr(ds, "Manufacturer", "N/A"),
-                    "Station Name": getattr(ds, "StationName", "N/A"),
-                    "Tube Voltage (kVp)": getattr(ds, "KVP", "N/A"),
-                    "Tube Current (mA)": getattr(ds, "XRayTubeCurrent", "N/A"),
-                    "Exposure Time (ms)": getattr(ds, "ExposureTime", "N/A"),
-                    "Matrix Size": f"{getattr(ds, 'Rows', 'N/A')} x {getattr(ds, 'Columns', 'N/A')}",
-                    "Slice Thickness": getattr(ds, "Slice Thickness", "N/A"),
-                }
-                df_info = pd.DataFrame(list(info.items()), columns=["Parameter", "Value"])
-                st.table(df_info)
-
-            with col2:
-                st.subheader("Diagnostic Image Viewer & Controls")
+            # --- LEFT COLUMN: VIEWER & CONTRAST (Always visible, no scroll needed) ---
+            with col_left_viewer:
+                st.subheader("🖼️ Diagnostic Viewer")
                 if hasattr(ds, "pixel_array"):
                     pixel_array = ds.pixel_array.astype(np.float32)
                     if modality == "CT":
@@ -232,9 +215,8 @@ with tab2:
                     
                     min_val, max_val = float(img_data.min()), float(img_data.max())
                     
-                    # Modality-Aware Window Controls (Presets ONLY for CT)
                     if modality == "CT":
-                        preset = st.selectbox("Window Presets (CT Only)", ["Custom", "Soft Tissue (C:40, W:400)", "Bone (C:400, W:1500)", "Lung (C:-600, W:1500)", "Brain (C:40, W:80)"])
+                        preset = st.selectbox("Window Presets", ["Custom", "Soft Tissue (C:40, W:400)", "Bone (C:400, W:1500)", "Lung (C:-600, W:1500)", "Brain (C:40, W:80)"])
                         if preset == "Soft Tissue (C:40, W:400)":
                             default_center, default_width = 40.0, 400.0
                         elif preset == "Bone (C:400, W:1500)":
@@ -247,28 +229,19 @@ with tab2:
                             default_center = float(np.mean(img_data))
                             default_width = float(max(1.0, max_val - min_val))
                     else:
-                        st.markdown("*Radiography / Direct Intensity Contrast Controls*")
                         default_center = float(np.mean(img_data))
                         default_width = float(max(1.0, max_val - min_val))
                     
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        wc = st.slider(f"Window Center ({unit_label})", min_value=min_val, max_value=max_val, value=float(np.clip(default_center, min_val, max_val)))
-                    with c2:
-                        ww = st.slider(f"Window Width ({unit_label})", min_value=1.0, max_value=max(10.0, max_val - min_val), value=float(default_width))
+                    wc = st.slider(f"Window Center ({unit_label})", min_value=min_val, max_value=max_val, value=float(np.clip(default_center, min_val, max_val)))
+                    ww = st.slider(f"Window Width ({unit_label})", min_value=1.0, max_value=max(10.0, max_val - min_val), value=float(default_width))
                     
                     vmin = wc - ww / 2
                     vmax = wc + ww / 2
                     
-                    # --- Multi-ROI Management (Named ROIs: Center, Top, Bottom, Left, Right) ---
-                    st.markdown("---")
-                    st.subheader("🎯 Multi-ROI Positioning & QC Analysis")
-                    st.markdown("Ρυθμίστε τη θέση και το μέγεθος των 5 καθορισμένων ROIs (Center, Top, Bottom, Left, Right) πάνω στην εικόνα:")
-                    
+                    # Read dynamic ROI positions from right column session states
                     img_h, img_w = img_data.shape
                     cx_default, cy_default = img_w // 2, img_h // 2
                     
-                    # ROI Definitions with fixed names & logical default offsets
                     roi_configs = [
                         {"name": "Center", "default_dx": 0, "default_dy": 0, "color": "red"},
                         {"name": "Top", "default_dx": 0, "default_dy": -int(img_h * 0.25), "color": "blue"},
@@ -277,110 +250,122 @@ with tab2:
                         {"name": "Right", "default_dx": int(img_w * 0.25), "default_dy": 0, "color": "purple"}
                     ]
                     
-                    fig, ax = plt.subplots(figsize=(4.5, 4.5))
+                    fig, ax = plt.subplots(figsize=(5, 5))
                     ax.imshow(img_data, cmap=plt.cm.bone, vmin=vmin, vmax=vmax)
                     ax.axis('off')
                     
                     roi_summary_data = []
                     
-                    # Let user choose active ROIs to display (up to 5)
-                    active_roi_names = st.multiselect(
-                        "Ενεργά ROIs προς εμφάνιση και μέτρηση:", 
-                        [rc["name"] for rc in roi_configs], 
-                        default=["Center", "Top", "Bottom", "Left", "Right"]
-                    )
-                    
+                    # We store active states locally based on widget keys
                     for rc in roi_configs:
                         r_name = rc["name"]
-                        if r_name not in active_roi_names:
-                            continue
+                        # Fetch current slider values if available in session state
+                        pos_x = st.session_state.get(f"x_{r_name}", cx_default + rc["default_dx"])
+                        pos_y = st.session_state.get(f"y_{r_name}", cy_default + rc["default_dy"])
+                        r_shape = st.session_state.get(f"shape_{r_name}", "Circle")
+                        
+                        max_dim = min(img_h, img_w) // 4
+                        if r_shape == "Square":
+                            r_size = st.session_state.get(f"size_{r_name}", 30)
+                            x1, x2 = max(0, pos_x - r_size//2), min(img_w, pos_x + r_size//2)
+                            y1, y2 = max(0, pos_y - r_size//2), min(img_h, pos_y + r_size//2)
+                            roi_pixels = img_data[y1:y2, x1:x2]
                             
-                        with st.expander(f"⚙️ Ρυθμίσεις για {r_name} ROI", expanded=(r_name == "Center")):
-                            col_r1, col_r2 = st.columns(2)
-                            with col_r1:
-                                r_shape = st.selectbox(f"Σχήμα {r_name}", ["Circle", "Square"], key=f"shape_{r_name}")
-                                pos_x = st.slider(f"Θέση X ({r_name})", min_value=0, max_value=img_w, value=cx_default + rc["default_dx"], key=f"x_{r_name}")
-                            with col_r2:
-                                pos_y = st.slider(f"Θέση Y ({r_name})", min_value=0, max_value=img_h, value=cy_default + rc["default_dy"], key=f"y_{r_name}")
-                                
-                                max_dim = min(img_h, img_w) // 4
-                                if r_shape == "Square":
-                                    r_size = st.slider(f"Μέγεθος (Πλευρά) {r_name}", min_value=5, max_value=max_dim*2, value=30, key=f"size_{r_name}")
-                                    x1, x2 = max(0, pos_x - r_size//2), min(img_w, pos_x + r_size//2)
-                                    y1, y2 = max(0, pos_y - r_size//2), min(img_h, pos_y + r_size//2)
-                                    roi_pixels = img_data[y1:y2, x1:x2]
-                                    
-                                    rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=1.5, edgecolor=rc["color"], facecolor='none')
-                                    ax.add_patch(rect)
-                                    ax.text(x1, y1 - 5, r_name, color=rc["color"], fontsize=9, weight='bold')
-                                else:
-                                    r_radius = st.slider(f"Ακτίνα {r_name}", min_value=5, max_value=max_dim, value=20, key=f"rad_{r_name}")
-                                    y_grid, x_grid = np.ogrid[:img_h, :img_w]
-                                    mask = (x_grid - pos_x)**2 + (y_grid - pos_y)**2 <= r_radius**2
-                                    roi_pixels = img_data[mask]
-                                    
-                                    circle = patches.Circle((pos_x, pos_y), r_radius, linewidth=1.5, edgecolor=rc["color"], facecolor='none')
-                                    ax.add_patch(circle)
-                                    ax.text(pos_x - r_radius, pos_y - r_radius - 5, r_name, color=rc["color"], fontsize=9, weight='bold')
+                            rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=1.5, edgecolor=rc["color"], facecolor='none')
+                            ax.add_patch(rect)
+                            ax.text(x1, y1 - 5, r_name, color=rc["color"], fontsize=9, weight='bold')
+                        else:
+                            r_radius = st.session_state.get(f"rad_{r_name}", 20)
+                            y_grid, x_grid = np.ogrid[:img_h, :img_w]
+                            mask = (x_grid - pos_x)**2 + (y_grid - pos_y)**2 <= r_radius**2
+                            roi_pixels = img_data[mask]
                             
-                            if roi_pixels.size > 0:
-                                roi_summary_data.append({
-                                    "ROI Name": r_name,
-                                    "Shape": r_shape,
-                                    "Mean": f"{np.mean(roi_pixels):.2f}",
-                                    "Noise (StdDev)": f"{np.std(roi_pixels):.2f}",
-                                    "Min": f"{np.min(roi_pixels):.1f}",
-                                    "Max": f"{np.max(roi_pixels):.1f}"
-                                })
+                            circle = patches.Circle((pos_x, pos_y), r_radius, linewidth=1.5, edgecolor=rc["color"], facecolor='none')
+                            ax.add_patch(circle)
+                            ax.text(pos_x - r_radius, pos_y - r_radius - 5, r_name, color=rc["color"], fontsize=9, weight='bold')
+                        
+                        if roi_pixels.size > 0:
+                            roi_summary_data.append({
+                                "ROI Name": r_name,
+                                "Shape": r_shape,
+                                "Mean": f"{np.mean(roi_pixels):.2f}",
+                                "Noise (StdDev)": f"{np.std(roi_pixels):.2f}",
+                                "Min": f"{np.min(roi_pixels):.1f}",
+                                "Max": f"{np.max(roi_pixels):.1f}"
+                            })
                     
                     st.pyplot(fig)
                     
-                    # PNG Download Button
                     img_buf = io.BytesIO()
                     fig.savefig(img_buf, format="png", bbox_inches='tight', dpi=150)
                     img_buf.seek(0)
-                    st.download_button("📥 Download Preview as PNG", img_buf, file_name="dicom_multiroi_preview.png", mime="image/png")
+                    st.download_button("📥 Download Preview PNG", img_buf, file_name="dicom_preview.png", mime="image/png")
+
+            # --- RIGHT COLUMN: MULTI-ROI CONTROLS & METADATA ---
+            with col_right_controls:
+                st.subheader("⚙️ Multi-ROI & QC Tools")
+                
+                with st.expander("🎯 Configure ROIs (Center, Top, Bottom, Left, Right)", expanded=True):
+                    for rc in roi_configs:
+                        r_name = rc["name"]
+                        with st.container():
+                            st.markdown(f"**{r_name} ROI**")
+                            r_shape = st.selectbox(f"Shape {r_name}", ["Circle", "Square"], key=f"shape_{r_name}")
+                            col_sx, col_sy = st.columns(2)
+                            with col_sx:
+                                st.slider(f"X ({r_name})", min_value=0, max_value=img_w, value=cx_default + rc["default_dx"], key=f"x_{r_name}")
+                            with col_sy:
+                                st.slider(f"Y ({r_name})", min_value=0, max_value=img_h, value=cy_default + rc["default_dy"], key=f"y_{r_name}")
+                            
+                            if r_shape == "Square":
+                                st.slider(f"Size {r_name}", min_value=5, max_value=100, value=30, key=f"size_{r_name}")
+                            else:
+                                st.slider(f"Radius {r_name}", min_value=5, max_value=50, value=20, key=f"rad_{r_name}")
+                            st.divider()
+
+                if roi_summary_data:
+                    st.subheader("📋 Measurements Table")
+                    df_roi = pd.DataFrame(roi_summary_data)
+                    st.table(df_roi)
+
+            # --- FULL WIDTH SECTIONS BELOW ---
+            st.markdown("---")
+            col_meta1, col_meta2 = st.columns(2)
+            
+            with col_meta1:
+                with st.expander("📋 Key Metadata Summary"):
+                    info = {
+                        "Modality": modality,
+                        "Patient ID": getattr(ds, "PatientID", "N/A"),
+                        "Study Description": getattr(ds, "StudyDescription", "N/A"),
+                        "Manufacturer": getattr(ds, "Manufacturer", "N/A"),
+                        "Matrix Size": f"{getattr(ds, 'Rows', 'N/A')} x {getattr(ds, 'Columns', 'N/A')}",
+                    }
+                    st.table(pd.DataFrame(list(info.items()), columns=["Parameter", "Value"]))
+
+            with col_meta2:
+                with st.expander("📊 Full Image Statistics & Histogram"):
+                    st.write(f"- **Image Mean:** {np.mean(img_data):.2f} {unit_label}")
+                    st.write(f"- **Image StdDev:** {np.std(img_data):.2f}")
                     
-                    # Multi-ROI Summary Table Output
-                    if roi_summary_data:
-                        st.subheader("📋 Ενιαίος Πίνακας Μετρήσεων Multi-ROI")
-                        df_roi = pd.DataFrame(roi_summary_data)
-                        st.table(df_roi)
-                    
-                    with st.expander("📊 Full Image Statistics & Histogram"):
-                        st.write(f"- **Image Mean:** {np.mean(img_data):.2f} {unit_label}")
-                        st.write(f"- **Image StdDev:** {np.std(img_data):.2f}")
-                        st.write(f"- **Min / Max:** {min_val:.1f} / {max_val:.1f} {unit_label}")
-                        
-                        fig_hist, ax_hist = plt.subplots(figsize=(5, 2.5))
-                        ax_hist.hist(img_data.ravel(), bins=64, color='skyblue', edgecolor='black')
-                        ax_hist.set_title(f"Pixel Intensity Distribution ({unit_label})", fontsize=10)
-                        st.pyplot(fig_hist)
-                else:
-                    st.info("No pixel data found in this DICOM file.")
+                    fig_hist, ax_hist = plt.subplots(figsize=(4, 2))
+                    ax_hist.hist(img_data.ravel(), bins=32, color='skyblue', edgecolor='black')
+                    st.pyplot(fig_hist)
 
             with st.expander("📋 Explore All DICOM Tags (Raw Metadata)"):
-                all_tags = []
-                for elem in ds:
-                    if elem.tag != 0x7fe00010:
-                        all_tags.append({
-                            "Tag": str(elem.tag),
-                            "Keyword": getattr(elem, "keyword", ""),
-                            "Name": elem.name,
-                            "Value": str(elem.value)[:100]
-                        })
+                all_tags = [{"Tag": str(elem.tag), "Keyword": getattr(elem, "keyword", ""), "Name": elem.name, "Value": str(elem.value)[:100]} for elem in ds if elem.tag != 0x7fe00010]
                 df_tags = pd.DataFrame(all_tags)
-                tag_search = st.text_input("🔍 Search all DICOM tags", "")
+                tag_search = st.text_input("🔍 Search DICOM tags", "")
                 if tag_search:
                     df_tags = df_tags[df_tags.apply(lambda row: row.astype(str).str.contains(tag_search, case=False).any(), axis=1)]
                 st.dataframe(df_tags, use_container_width=True)
 
         except Exception as e:
-            st.error(f"Could not read the DICOM file: {e}")
+            st.error(f"Could not read DICOM file: {e}")
 
 with tab3:
     st.header("📊 Batch Dataset Report & CSV Export")
-    st.markdown("Upload a ZIP folder containing multiple DICOM files (mixed patients, CT series, or X-rays). The tool automatically groups CT slices per patient/series and aggregates summary statistics into a clean report.")
+    st.markdown("Upload a ZIP folder containing multiple DICOM files. The tool automatically groups CT slices per patient/series and aggregates summary statistics.")
 
     batch_zip = st.file_uploader("Upload Multi-Dataset ZIP", type=["zip"], key="batch_zip")
 
@@ -406,12 +391,6 @@ with tab3:
                                         "Modality": modality,
                                         "Study Description": str(getattr(ds, "StudyDescription", "N/A")),
                                         "Manufacturer": str(getattr(ds, "Manufacturer", "N/A")),
-                                        "Station Name": str(getattr(ds, "StationName", "N/A")),
-                                        "kVp": str(getattr(ds, "KVP", "N/A")),
-                                        "Tube Current (mA)": str(getattr(ds, "XRayTubeCurrent", "N/A")),
-                                        "Exposure Time (ms)": str(getattr(ds, "ExposureTime", "N/A")),
-                                        "Slice Thickness": str(getattr(ds, "Slice Thickness", "N/A")),
-                                        "Matrix Size": f"{getattr(ds, 'Rows', 'N/A')} x {getattr(ds, 'Columns', 'N/A')}",
                                         "Slice Count": 0,
                                         "Mean Pixel Value": []
                                     }
@@ -424,7 +403,6 @@ with tab3:
                                         intercept = float(getattr(ds, "RescaleIntercept", 0.0))
                                         arr = arr * slope + intercept
                                     records[group_key]["Mean Pixel Value"].append(np.mean(arr))
-                                    
                             except Exception:
                                 continue
                 
@@ -436,31 +414,19 @@ with tab3:
                         "Modality": v["Modality"],
                         "Study Description": v["Study Description"],
                         "Manufacturer": v["Manufacturer"],
-                        "Station Name": v["Station Name"],
-                        "kVp": v["kVp"],
-                        "Tube Current (mA)": v["Tube Current (mA)"],
-                        "Exposure Time (ms)": v["Exposure Time (ms)"],
-                        "Total Slices / Files": v["Slice Count"],
-                        "Slice Thickness": v["Slice Thickness"],
-                        "Matrix Size": v["Matrix Size"],
-                        "Avg Mean Pixel / HU": f"{mean_val:.2f}"
+                        "Total Slices": v["Slice Count"],
+                        "Avg Mean / HU": f"{mean_val:.2f}"
                     })
                 
                 if summary_data:
                     df_summary = pd.DataFrame(summary_data)
-                    st.success(f"Successfully aggregated dataset! Found {len(summary_data)} distinct patient/series groups.")
+                    st.success(f"Aggregated {len(summary_data)} series successfully!")
                     st.dataframe(df_summary, use_container_width=True)
                     
                     csv_bytes = df_summary.to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label="📥 Download Summary CSV Report",
-                        data=csv_bytes,
-                        file_name="medphys_dicom_batch_report.csv",
-                        mime="text/csv"
-                    )
+                    st.download_button("📥 Download CSV Report", csv_bytes, "medphys_batch_report.csv", "text/csv")
                 else:
-                    st.warning("No valid DICOM files were found inside the ZIP archive.")
-                    
+                    st.warning("No valid DICOM files found in ZIP.")
             except Exception as e:
                 st.error(f"Error processing batch archive: {e}")
 
