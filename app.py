@@ -222,14 +222,18 @@ with tab2:
                     
                     min_val, max_val = float(img_data.min()), float(img_data.max())
                     
-                    # --- COMPACT QUICK ADJUSTMENT SLIDERS ---
-                    col_q1, col_q2 = st.columns(2)
+                    # --- COMPACT QUICK ADJUSTMENT PANEL (4 SLIDERS + FILTER) ---
+                    col_q1, col_q2, col_q3, col_q4, col_q5 = st.columns(5)
                     with col_q1:
-                        brightness_offset = st.slider("Brightness", min_value=-500.0, max_value=500.0, value=0.0, step=10.0)
-                        contrast_factor = st.slider("Contrast", min_value=0.1, max_value=3.0, value=1.0, step=0.1)
+                        brightness_offset = st.slider("Brightness", -300.0, 300.0, 0.0, step=10.0)
                     with col_q2:
-                        gamma_val = st.slider("Gamma", min_value=0.2, max_value=3.0, value=1.0, step=0.1)
-                        selected_filter = st.selectbox("Filter", ["None", "Sharpen", "Smoothing / Blur", "Histogram Equalization"])
+                        contrast_factor = st.slider("Contrast", 0.2, 3.0, 1.0, step=0.1)
+                    with col_q3:
+                        gamma_val = st.slider("Gamma", 0.2, 3.0, 1.0, step=0.1)
+                    with col_q4:
+                        sharpness_val = st.slider("Sharpness", 0.0, 3.0, 1.0, step=0.1)
+                    with col_q5:
+                        selected_filter = st.selectbox("Filter", ["None", "Smoothing / Blur", "Histogram Equalization"])
                     
                     # Apply Brightness & Contrast
                     img_adjusted = img_data + brightness_offset
@@ -242,18 +246,22 @@ with tab2:
                         norm_g = np.clip((img_adjusted - min_v) / (max_v - min_v), 0, 1)
                         img_adjusted = min_v + (norm_g ** gamma_val) * (max_v - min_v)
                     
-                    # Apply Spatial Filter via PIL
-                    if selected_filter != "None":
-                        norm_p = np.clip((img_adjusted - min_v) / (max_v - min_v + 1e-5) * 255, 0, 255).astype(np.uint8)
-                        pil_img = Image.fromarray(norm_p)
-                        if selected_filter == "Sharpen":
-                            pil_img = pil_img.filter(ImageFilter.SHARPEN)
-                        elif selected_filter == "Smoothing / Blur":
-                            pil_img = pil_img.filter(ImageFilter.BLUR)
-                        elif selected_filter == "Histogram Equalization":
-                            pil_img = ImageOps.equalize(pil_img)
-                        back = np.array(pil_img).astype(np.float32)
-                        img_adjusted = min_v + (back / 255.0) * (max_v - min_v)
+                    # Apply Spatial Filters & Sharpness via PIL
+                    norm_p = np.clip((img_adjusted - min_v) / (max_v - min_v + 1e-5) * 255, 0, 255).astype(np.uint8)
+                    pil_img = Image.fromarray(norm_p)
+                    
+                    if sharpness_val != 1.0:
+                        from PIL import ImageEnhance
+                        enhancer = ImageEnhance.Sharpness(pil_img)
+                        pil_img = enhancer.enhance(sharpness_val)
+                        
+                    if selected_filter == "Smoothing / Blur":
+                        pil_img = pil_img.filter(ImageFilter.BLUR)
+                    elif selected_filter == "Histogram Equalization":
+                        pil_img = ImageOps.equalize(pil_img)
+                        
+                    back = np.array(pil_img).astype(np.float32)
+                    img_adjusted = min_v + (back / 255.0) * (max_v - min_v)
 
                     colormap_choice = st.session_state.get("colormap_choice", "bone")
                     invert_choice = st.session_state.get("invert_choice", False)
@@ -351,7 +359,7 @@ with tab2:
                     st.checkbox("Invert Black/White (Invert Image)", key="invert_choice")
 
                 # --- 2. MULTI-ROI ANALYSIS (Compact Inline Layout) ---
-                with st.expander("🎯 Multi-ROI Analysis & QC", expanded=True):
+                with st.expander("🎯 Multi-ROI Analysis", expanded=True):
                     st.markdown("Select ROIs to display & analyze:")
                     
                     c_chk1, c_chk2, c_chk3, c_chk4, c_chk5 = st.columns(5)
@@ -408,31 +416,50 @@ with tab2:
                         m_dist = p_dist * st.session_state.calib_spacing
                         st.info(f"📐 **Ruler Length:** `{p_dist:.1f} px` | `{m_dist:.2f} mm`")
 
-                # --- MEASUREMENTS TABLE & SCIENTIFIC SNR / CNR ---
+                # --- 4. LINE INTENSITY PROFILE (Placeholder / Next Step) ---
+                with st.expander("📈 Line Intensity Profile", expanded=False):
+                    st.info("Coming soon: Interactive profile plot across custom line segments for MTF/ESF analysis.")
+
+                # --- 5. ADVANCED SNR & CNR METRICS ---
+                with st.expander("🔬 Advanced SNR & CNR Metrics", expanded=False):
+                    if roi_summary_data:
+                        st.markdown("**Calculated Metrics (based on active ROIs):**")
+                        for d in roi_summary_data:
+                            snr_val = (d['Mean'] / d['StdDev']) if d['StdDev'] > 0 else 0.0
+                            st.write(- f"**{d['ROI Name']} SNR:** `{snr_val:.2f}`")
+                        
+                        means = {d["ROI Name"]: d["Mean"] for d in roi_summary_data}
+                        stds = {d["ROI Name"]: d["StdDev"] for d in roi_summary_data}
+                        if "Center" in means and stds.get("Center", 0) > 0:
+                            c_mean, c_sd = means["Center"], stds["Center"]
+                            st.markdown("---")
+                            st.markdown("**CNR (vs Center):**")
+                            for d in roi_summary_data:
+                                if d["ROI Name"] != "Center":
+                                    cnr_val = abs(d["Mean"] - c_mean) / c_sd
+                                    st.write(f"- **{d['ROI Name']} -> Center:** `{cnr_val:.2f}`")
+                    else:
+                        st.warning("Enable and configure ROIs in 'Multi-ROI Analysis' to calculate metrics.")
+
+                # --- 6. DICOM HEADER EDITOR & FIXER (Placeholder) ---
+                with st.expander("✏️ DICOM Header Editor & Fixer", expanded=False):
+                    st.info("Coming soon: Live tag modification and metadata correction tools.")
+
+                # --- 7. AUTOMATED QC REPORT GENERATOR (Placeholder) ---
+                with st.expander("📄 Automated QC Report Generator", expanded=False):
+                    st.info("Coming soon: Export complete QA/QC reports with images and tables.")
+
+                # --- MEASUREMENTS TABLE ---
                 if roi_summary_data:
-                    st.subheader("📋 Measurements Table & QC")
+                    st.subheader("📋 Measurements Table")
                     df_display = pd.DataFrame([{
                         "ROI": d["ROI Name"],
                         "Mean": f"{d['Mean']:.2f}",
                         "StdDev": f"{d['StdDev']:.2f}",
                         "Min": f"{d['Min']:.1f}",
-                        "Max": f"{d['Max']:.1f}",
-                        "SNR": f"{(d['Mean'] / d['StdDev']):.2f}" if d['StdDev'] > 0 else "N/A"
+                        "Max": f"{d['Max']:.1f}"
                     } for d in roi_summary_data])
                     st.table(df_display)
-                    
-                    means = {d["ROI Name"]: d["Mean"] for d in roi_summary_data}
-                    stds = {d["ROI Name"]: d["StdDev"] for d in roi_summary_data}
-                    
-                    if "Center" in means and stds.get("Center", 0) > 0:
-                        center_mean = means["Center"]
-                        center_sd = stds["Center"]
-                        st.markdown("**Scientific CNR (vs Center):**")
-                        for d in roi_summary_data:
-                            r_name = d["ROI Name"]
-                            if r_name != "Center":
-                                cnr_val = abs(d["Mean"] - center_mean) / center_sd
-                                st.write(f"- **CNR ({r_name} -> Center):** `{cnr_val:.2f}`")
 
             st.markdown("---")
             col_meta1, col_meta2 = st.columns(2)
