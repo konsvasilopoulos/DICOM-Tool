@@ -87,11 +87,11 @@ def generate_demo_dx():
     ds.StudyDate = datetime.datetime.now().strftime("%Y%m%d")
     ds.Modality = "DX"
     ds.Manufacturer = "PHILIPS_DEMO"
-    ds.StationName = "XRAY_ROOM_03"
+    ds.StationName = "PORTABLE_XRAY_01"
+    ds.StudyDescription = "PORTABLE CHEST X-RAY"
     ds.KVP = "75"
     ds.XRayTubeCurrent = "320"
     ds.ExposureTime = "150"
-    ds.StudyDescription = "Chest X-Ray"
     ds.Rows = 512
     ds.Columns = 512
     ds.PixelSpacing = [0.15, 0.15]
@@ -128,14 +128,14 @@ with tab1:
                 st.success("Demo CT ZIP generated!")
                 st.download_button("📥 Download Demo CT ZIP", demo_zip_buffer, "demo_ct_files.zip", "application/zip", key="dl_ct")
         with col_d2:
-            if st.button("Generate Demo X-Ray (DX) ZIP"):
+            if st.button("Generate Demo Portable X-Ray (DX) ZIP"):
                 demo_dx_bytes = generate_demo_dx()
                 demo_dx_buffer = io.BytesIO()
                 with zipfile.ZipFile(demo_dx_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_out:
-                    zip_out.writestr("demo_dx_scan.dcm", demo_dx_bytes)
+                    zip_out.writestr("demo_portable_dx.dcm", demo_dx_bytes)
                 demo_dx_buffer.seek(0)
-                st.success("Demo X-Ray ZIP generated!")
-                st.download_button("📥 Download Demo X-Ray ZIP", demo_dx_buffer, "demo_dx_files.zip", "application/zip", key="dl_dx")
+                st.success("Demo Portable X-Ray ZIP generated!")
+                st.download_button("📥 Download Demo Portable X-Ray ZIP", demo_dx_buffer, "demo_dx_files.zip", "application/zip", key="dl_dx")
 
     uploaded_zip = st.file_uploader("Upload DICOM ZIP Archive", type=["zip"], key="anon_zip")
 
@@ -189,17 +189,25 @@ with tab2:
             ds = pydicom.dcmread(uploaded_dcm)
             modality = getattr(ds, "Modality", "UNKNOWN")
             
+            # Smart detection for portable / mobile units
+            study_desc = str(getattr(ds, "StudyDescription", "")).upper()
+            series_desc = str(getattr(ds, "SeriesDescription", "")).upper()
+            station_name = str(getattr(ds, "StationName", "")).upper()
+            is_portable = "PORTABLE" in study_desc or "MOBILE" in study_desc or "PORTABLE" in station_name or "MOBILE" in station_name
+            
             if modality == "CT":
-                st.success(f"📌 Detected Modality: **CT** — Hounsfield Units active.")
-            elif modality in ["DX", "CR", "MG"]:
-                st.info(f"📌 Detected Modality: **Radiography ({modality})** — Raw Pixel Intensity mode active.")
+                st.success(f"📌 Detected Modality: **CT (Computed Tomography)** — Hounsfield Units active.")
+            elif modality == "MG":
+                st.info(f"📌 Detected Modality: **MG (Mammography)** — High-resolution projection mode active.")
+            elif modality in ["DX", "CR"]:
+                portable_tag = " [⚠️ PORTABLE / MOBILE UNIT]" if is_portable else ""
+                st.info(f"📌 Detected Modality: **Radiography ({modality}){portable_tag}** — Raw Pixel Intensity mode active.")
             else:
                 st.warning(f"📌 Detected Modality: **{modality}**")
 
-            # --- NEW PROFESSIONAL 2-COLUMN LAYOUT ---
+            # --- PROFESSIONAL 2-COLUMN LAYOUT ---
             col_left_viewer, col_right_controls = st.columns([1.1, 0.9], gap="large")
             
-            # --- LEFT COLUMN: VIEWER & CONTRAST (Always visible, no scroll needed) ---
             with col_left_viewer:
                 st.subheader("🖼️ Diagnostic Viewer")
                 if hasattr(ds, "pixel_array"):
@@ -211,7 +219,7 @@ with tab2:
                         unit_label = "HU"
                     else:
                         img_data = pixel_array
-                        unit_label = "Intensity"
+                        unit_label = "Intensity (Arbitrary Units)"
                     
                     min_val, max_val = float(img_data.min()), float(img_data.max())
                     
@@ -238,7 +246,6 @@ with tab2:
                     vmin = wc - ww / 2
                     vmax = wc + ww / 2
                     
-                    # Read dynamic ROI positions from right column session states
                     img_h, img_w = img_data.shape
                     cx_default, cy_default = img_w // 2, img_h // 2
                     
@@ -256,10 +263,8 @@ with tab2:
                     
                     roi_summary_data = []
                     
-                    # We store active states locally based on widget keys
                     for rc in roi_configs:
                         r_name = rc["name"]
-                        # Fetch current slider values if available in session state
                         pos_x = st.session_state.get(f"x_{r_name}", cx_default + rc["default_dx"])
                         pos_y = st.session_state.get(f"y_{r_name}", cy_default + rc["default_dy"])
                         r_shape = st.session_state.get(f"shape_{r_name}", "Circle")
@@ -301,7 +306,6 @@ with tab2:
                     img_buf.seek(0)
                     st.download_button("📥 Download Preview PNG", img_buf, file_name="dicom_preview.png", mime="image/png")
 
-            # --- RIGHT COLUMN: MULTI-ROI CONTROLS & METADATA ---
             with col_right_controls:
                 st.subheader("⚙️ Multi-ROI & QC Tools")
                 
@@ -328,7 +332,6 @@ with tab2:
                     df_roi = pd.DataFrame(roi_summary_data)
                     st.table(df_roi)
 
-            # --- FULL WIDTH SECTIONS BELOW ---
             st.markdown("---")
             col_meta1, col_meta2 = st.columns(2)
             
@@ -336,6 +339,7 @@ with tab2:
                 with st.expander("📋 Key Metadata Summary"):
                     info = {
                         "Modality": modality,
+                        "Portable / Mobile": "Yes ⚠️" if is_portable else "No",
                         "Patient ID": getattr(ds, "PatientID", "N/A"),
                         "Study Description": getattr(ds, "StudyDescription", "N/A"),
                         "Manufacturer": getattr(ds, "Manufacturer", "N/A"),
@@ -348,9 +352,19 @@ with tab2:
                     st.write(f"- **Image Mean:** {np.mean(img_data):.2f} {unit_label}")
                     st.write(f"- **Image StdDev:** {np.std(img_data):.2f}")
                     
-                    fig_hist, ax_hist = plt.subplots(figsize=(4, 2))
-                    ax_hist.hist(img_data.ravel(), bins=32, color='skyblue', edgecolor='black')
+                    # Professional Histogram with Units & Labels
+                    fig_hist, ax_hist = plt.subplots(figsize=(4.5, 2.5))
+                    ax_hist.hist(img_data.ravel(), bins=40, color='skyblue', edgecolor='black')
+                    ax_hist.set_title("Pixel Intensity / HU Distribution", fontsize=10)
+                    ax_hist.set_xlabel(f"Pixel Value / Unit ({unit_label})", fontsize=9)
+                    ax_hist.set_ylabel("Frequency (Pixel Count)", fontsize=9)
                     st.pyplot(fig_hist)
+                    
+                    # Download Histogram Button
+                    hist_buf = io.BytesIO()
+                    fig_hist.savefig(hist_buf, format="png", bbox_inches='tight', dpi=150)
+                    hist_buf.seek(0)
+                    st.download_button("📥 Download Histogram PNG", hist_buf, file_name="image_histogram.png", mime="image/png")
 
             with st.expander("📋 Explore All DICOM Tags (Raw Metadata)"):
                 all_tags = [{"Tag": str(elem.tag), "Keyword": getattr(elem, "keyword", ""), "Name": elem.name, "Value": str(elem.value)[:100]} for elem in ds if elem.tag != 0x7fe00010]
