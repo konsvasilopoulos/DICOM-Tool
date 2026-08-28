@@ -65,7 +65,7 @@ def generate_demo_ct():
     y, x = np.ogrid[:512, :512]
     mask = (x - 256)**2 + (y - 256)**2 <= 100**2
     img_array = np.zeros((512, 512), dtype=np.int16) - 1000
-    img_array[mask] = 400
+    img_array[mask] = 0  # Water phantom region = 0 HU
     ds.PixelData = img_array.tobytes()
     
     out_bytes = io.BytesIO()
@@ -333,7 +333,7 @@ with tab2:
                                 "Max": np.max(roi_pixels)
                             })
 
-                    # --- RENDER DISTANCE RULER (THIN LINE + ONLY DOTS AT ENDS) ---
+                    # --- RENDER DISTANCE RULER ---
                     enable_ruler = st.session_state.get("enable_ruler", False)
                     pixel_spacing_val = st.session_state.get("calib_spacing", 1.0)
 
@@ -345,7 +345,7 @@ with tab2:
                         
                         ax.plot([rx1, rx2], [ry1, ry2], color='yellow', linewidth=1.0, marker='o', markersize=4)
 
-                    # --- RENDER LINE INTENSITY PROFILE OVERLAY (THIN DASHED LINE + ONLY DOTS) ---
+                    # --- RENDER LINE INTENSITY PROFILE OVERLAY ---
                     enable_lp = st.session_state.get("enable_line_profile", False)
                     if enable_lp:
                         lx1 = st.session_state.get("lp_x1", img_w // 4)
@@ -428,7 +428,7 @@ with tab2:
                         m_dist = p_dist * st.session_state.calib_spacing
                         st.info(f"📐 **Ruler Length:** `{p_dist:.1f} px` | `{m_dist:.2f} mm`")
 
-                # --- 4. LINE INTENSITY PROFILE (ESF / MTF) ---
+                # --- 4. LINE INTENSITY PROFILE (ESF / MTF & MTF50/MTF10) ---
                 with st.expander("📈 Line Intensity Profile (ESF / MTF)", expanded=False):
                     st.markdown("Define a line profile across an edge for spatial resolution analysis:")
                     st.checkbox("📏 Enable Line Intensity Profile", key="enable_line_profile")
@@ -463,8 +463,8 @@ with tab2:
                     else:
                         st.warning("Enable and configure ROIs in 'Multi-ROI Analysis' to calculate metrics.")
 
-                # --- 6. UNIFORMITY & NOISE ANALYZER (NEW QC TOOL) ---
-                with st.expander("🎯 Uniformity & Noise Analyzer", expanded=False):
+                # --- 6. UNIFORMITY & NOISE ANALYZER (WITH CT HU PASS/FAIL) ---
+                with st.expander("🎯 Uniformity & Noise Analyzer (QC)", expanded=False):
                     if roi_summary_data:
                         means_dict = {d["ROI Name"]: d["Mean"] for d in roi_summary_data}
                         stds_dict = {d["ROI Name"]: d["StdDev"] for d in roi_summary_data}
@@ -472,6 +472,14 @@ with tab2:
                         if "Center" in means_dict:
                             c_mean = means_dict["Center"]
                             st.markdown(f"**Center Reference Mean:** `{c_mean:.2f} {unit_label}`")
+                            
+                            # CT Number Accuracy (Pass/Fail) ONLY FOR CT MODALITY
+                            if modality == "CT":
+                                water_diff = abs(c_mean - 0.0)
+                                if water_diff <= 4.0:
+                                    st.success(f"✅ **CT Water Calibration: PASS** ({c_mean:.1f} HU within 0 ± 4 HU)")
+                                else:
+                                    st.warning(f"⚠️ **CT Water Calibration: CHECK** ({c_mean:.1f} HU outside 0 ± 4 HU)")
                             
                             periph_names = [k for k in means_dict.keys() if k != "Center"]
                             if periph_names:
@@ -485,9 +493,18 @@ with tab2:
                                 
                                 avg_unif = np.mean(unif_vals)
                                 avg_noise = np.mean([stds_dict[k] for k in stds_dict.keys()])
+                                
+                                # Noise distribution / stability check
+                                c_sd = stds_dict.get("Center", 0)
+                                periph_sds = [stds_dict[k] for k in periph_names]
+                                max_sd_diff = max([abs(p_sd - c_sd) for p_sd in periph_sds]) if periph_sds else 0
+                                
                                 st.markdown("---")
                                 st.write(f"📊 **Average Uniformity:** `{avg_unif:.1f}%`")
                                 st.write(f"📉 **Estimated Noise (SD):** `{avg_noise:.2f} {unit_label}`")
+                                
+                                if max_sd_diff > 2.0:
+                                    st.info("ℹ️ **Noise Distribution Note:** Minor variation between center and peripheral noise detected.")
                                 
                                 if avg_unif >= 90.0:
                                     st.success("✅ **QC Status: PASS** (Uniformity >= 90%)")
@@ -536,7 +553,7 @@ with tab2:
                     } for d in roi_summary_data])
                     st.table(df_display)
 
-            # --- DEDICATED FULL-WIDTH LINE INTENSITY PROFILE (ESF & MTF) ---
+            # --- DEDICATED FULL-WIDTH LINE INTENSITY PROFILE (ESF, MTF & MTF50/10) ---
             if st.session_state.get("enable_line_profile", False):
                 st.markdown("---")
                 st.subheader("📈 Spatial Resolution Analysis: ESF & MTF")
@@ -570,7 +587,7 @@ with tab2:
                     esf_buf.seek(0)
                     st.download_button("📥 Download ESF Plot PNG", esf_buf, file_name="esf_plot.png", mime="image/png")
 
-                    # 2. MTF Calculation via Derivative (LSF) + FFT
+                    # 2. MTF Calculation & MTF50 / MTF10 Metrics
                     lsf = np.abs(np.gradient(profile_values))
                     if np.sum(lsf) > 0:
                         lsf = lsf / np.sum(lsf)
@@ -581,14 +598,32 @@ with tab2:
                             dx = pixel_spacing_val if pixel_spacing_val > 0 else 1.0
                             freqs = np.fft.rfftfreq(len(lsf), d=dx)
                             
+                            # Extract MTF50 and MTF10
+                            try:
+                                idx_50 = np.argmin(np.abs(mtf - 0.5))
+                                mtf_50_freq = freqs[idx_50]
+                            except:
+                                mtf_50_freq = 0.0
+                                
+                            try:
+                                idx_10 = np.argmin(np.abs(mtf - 0.1))
+                                mtf_10_freq = freqs[idx_10]
+                            except:
+                                mtf_10_freq = 0.0
+                            
                             fig_mtf, ax_mtf = plt.subplots(figsize=(10, 3.2))
                             ax_mtf.plot(freqs, mtf, color='navy', linewidth=2)
+                            ax_mtf.axhline(0.5, color='gray', linestyle=':', label=f"MTF50: {mtf_50_freq:.2f} cyc/mm")
+                            ax_mtf.axhline(0.1, color='orange', linestyle=':', label=f"MTF10: {mtf_10_freq:.2f} cyc/mm")
                             ax_mtf.set_title("Modulation Transfer Function (MTF)", fontsize=11, weight='bold')
                             ax_mtf.set_xlabel("Spatial Frequency (cycles/mm)", fontsize=10)
                             ax_mtf.set_ylabel("Modulation Factor (MTF)", fontsize=10)
                             ax_mtf.set_ylim(0, 1.05)
+                            ax_mtf.legend(loc="upper right")
                             ax_mtf.grid(True, linestyle='--', alpha=0.6)
                             st.pyplot(fig_mtf)
+                            
+                            st.markdown(f"📏 **Spatial Resolution Metrics:** `MTF₅₀ = {mtf_50_freq:.2f} cyc/mm` | `MTF₁₀ (Limiting) = {mtf_10_freq:.2f} cyc/mm`")
                             
                             mtf_buf = io.BytesIO()
                             fig_mtf.savefig(mtf_buf, format="png", bbox_inches='tight', dpi=150)
