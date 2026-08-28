@@ -8,6 +8,7 @@ import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from PIL import Image, ImageFilter, ImageOps
 
 st.set_page_config(
     page_title="MedPhys DICOM Toolkit",
@@ -217,42 +218,52 @@ with tab2:
                         unit_label = "HU"
                     else:
                         img_data = pixel_array
-                        unit_label = "Intensity (Arbitrary Units)"
+                        unit_label = "Intensity"
                     
                     min_val, max_val = float(img_data.min()), float(img_data.max())
                     
-                    if modality == "CT":
-                        preset = st.selectbox("Window Presets", ["Custom", "Soft Tissue (C:40, W:400)", "Bone (C:400, W:1500)", "Lung (C:-600, W:1500)", "Brain (C:40, W:80)"])
-                        if preset == "Soft Tissue (C:40, W:400)":
-                            default_center, default_width = 40.0, 400.0
-                        elif preset == "Bone (C:400, W:1500)":
-                            default_center, default_width = 400.0, 1500.0
-                        elif preset == "Lung (C:-600, W:1500)":
-                            default_center, default_width = -600.0, 1500.0
-                        elif preset == "Brain (C:40, W:80)":
-                            default_center, default_width = 40.0, 80.0
-                        else:
-                            default_center = float(np.mean(img_data))
-                            default_width = float(max(1.0, max_val - min_val))
-                    else:
-                        default_center = float(np.mean(img_data))
-                        default_width = float(max(1.0, max_val - min_val))
+                    # --- COMPACT QUICK ADJUSTMENT SLIDERS ---
+                    col_q1, col_q2 = st.columns(2)
+                    with col_q1:
+                        brightness_offset = st.slider("Brightness", min_value=-500.0, max_value=500.0, value=0.0, step=10.0)
+                        contrast_factor = st.slider("Contrast", min_value=0.1, max_value=3.0, value=1.0, step=0.1)
+                    with col_q2:
+                        gamma_val = st.slider("Gamma", min_value=0.2, max_value=3.0, value=1.0, step=0.1)
+                        selected_filter = st.selectbox("Filter", ["None", "Sharpen", "Smoothing / Blur", "Histogram Equalization"])
                     
-                    wc = st.slider(f"Window Center ({unit_label})", min_value=min_val, max_value=max_val, value=float(np.clip(default_center, min_val, max_val)))
-                    ww = st.slider(f"Window Width ({unit_label})", min_value=1.0, max_value=max(10.0, max_val - min_val), value=float(default_width))
+                    # Apply Brightness & Contrast
+                    img_adjusted = img_data + brightness_offset
+                    mean_val = np.mean(img_adjusted)
+                    img_adjusted = (img_adjusted - mean_val) * contrast_factor + mean_val
                     
-                    vmin = wc - ww / 2
-                    vmax = wc + ww / 2
+                    # Apply Gamma
+                    min_v, max_v = img_adjusted.min(), img_adjusted.max()
+                    if max_v > min_v:
+                        norm_g = np.clip((img_adjusted - min_v) / (max_v - min_v), 0, 1)
+                        img_adjusted = min_v + (norm_g ** gamma_val) * (max_v - min_v)
                     
+                    # Apply Spatial Filter via PIL
+                    if selected_filter != "None":
+                        norm_p = np.clip((img_adjusted - min_v) / (max_v - min_v + 1e-5) * 255, 0, 255).astype(np.uint8)
+                        pil_img = Image.fromarray(norm_p)
+                        if selected_filter == "Sharpen":
+                            pil_img = pil_img.filter(ImageFilter.SHARPEN)
+                        elif selected_filter == "Smoothing / Blur":
+                            pil_img = pil_img.filter(ImageFilter.BLUR)
+                        elif selected_filter == "Histogram Equalization":
+                            pil_img = ImageOps.equalize(pil_img)
+                        back = np.array(pil_img).astype(np.float32)
+                        img_adjusted = min_v + (back / 255.0) * (max_v - min_v)
+
                     colormap_choice = st.session_state.get("colormap_choice", "bone")
                     invert_choice = st.session_state.get("invert_choice", False)
                     
-                    plot_data = img_data
+                    plot_data = img_adjusted
                     if invert_choice:
-                        plot_data = vmax - (img_data - vmin)
+                        plot_data = max_v - (img_adjusted - min_v)
 
                     fig, ax = plt.subplots(figsize=(5, 5))
-                    ax.imshow(plot_data, cmap=colormap_choice, vmin=vmin, vmax=vmax)
+                    ax.imshow(plot_data, cmap=colormap_choice)
                     ax.axis('off')
                     
                     img_h, img_w = img_data.shape
@@ -343,7 +354,6 @@ with tab2:
                 with st.expander("🎯 Multi-ROI Analysis & QC", expanded=True):
                     st.markdown("Select ROIs to display & analyze:")
                     
-                    # Compact Inline Checkboxes
                     c_chk1, c_chk2, c_chk3, c_chk4, c_chk5 = st.columns(5)
                     with c_chk1: st.checkbox("Center", key="chk_Center")
                     with c_chk2: st.checkbox("Top", key="chk_Top")
@@ -371,7 +381,6 @@ with tab2:
 
                 # --- 3. DISTANCE RULER & SMART CALIBRATION ---
                 with st.expander("📏 Distance Ruler & Calibration", expanded=False):
-                    # Smart Auto-detect PixelSpacing from DICOM header
                     auto_sp = 1.0
                     if hasattr(ds, "PixelSpacing") and ds.PixelSpacing:
                         try:
