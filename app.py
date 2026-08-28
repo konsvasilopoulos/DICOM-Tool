@@ -8,7 +8,7 @@ import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from PIL import Image, ImageFilter, ImageOps
+from PIL import Image, ImageFilter, ImageOps, ImageEnhance
 
 st.set_page_config(
     page_title="MedPhys DICOM Toolkit",
@@ -222,7 +222,7 @@ with tab2:
                     
                     min_val, max_val = float(img_data.min()), float(img_data.max())
                     
-                    # --- IMPROVED 2-ROW QUICK ADJUSTMENTS & FILTERS PANEL ---
+                    # --- QUICK ADJUSTMENTS & ENHANCED FILTERS PANEL ---
                     st.markdown("##### Quick Adjustments & Filters")
                     q_col1, q_col2 = st.columns(2)
                     with q_col1:
@@ -232,7 +232,10 @@ with tab2:
                         contrast_factor = st.slider("Contrast", 0.2, 3.0, 1.0, step=0.1)
                         sharpness_val = st.slider("Sharpness", 0.0, 3.0, 1.0, step=0.1)
                     
-                    selected_filter = st.selectbox("Spatial Filter", ["None", "Smoothing / Blur", "Histogram Equalization"])
+                    selected_filter = st.selectbox(
+                        "Advanced Spatial Filter", 
+                        ["None", "Smoothing / Blur", "Unsharp Mask (Pro Edge)", "Median Filter (Noise Reduction)", "Histogram Equalization"]
+                    )
                     
                     # Apply Brightness & Contrast
                     img_adjusted = img_data + brightness_offset
@@ -245,17 +248,20 @@ with tab2:
                         norm_g = np.clip((img_adjusted - min_v) / (max_v - min_v), 0, 1)
                         img_adjusted = min_v + (norm_g ** gamma_val) * (max_v - min_v)
                     
-                    # Apply Spatial Filters & Sharpness via PIL
+                    # Apply Spatial Filters & Sharpness via PIL & SciPy/PIL equivalents
                     norm_p = np.clip((img_adjusted - min_v) / (max_v - min_v + 1e-5) * 255, 0, 255).astype(np.uint8)
                     pil_img = Image.fromarray(norm_p)
                     
                     if sharpness_val != 1.0:
-                        from PIL import ImageEnhance
                         enhancer = ImageEnhance.Sharpness(pil_img)
                         pil_img = enhancer.enhance(sharpness_val)
                         
                     if selected_filter == "Smoothing / Blur":
                         pil_img = pil_img.filter(ImageFilter.BLUR)
+                    elif selected_filter == "Unsharp Mask (Pro Edge)":
+                        pil_img = pil_img.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
+                    elif selected_filter == "Median Filter (Noise Reduction)":
+                        pil_img = pil_img.filter(ImageFilter.MedianFilter(size=3))
                     elif selected_filter == "Histogram Equalization":
                         pil_img = ImageOps.equalize(pil_img)
                         
@@ -415,9 +421,19 @@ with tab2:
                         m_dist = p_dist * st.session_state.calib_spacing
                         st.info(f"📐 **Ruler Length:** `{p_dist:.1f} px` | `{m_dist:.2f} mm`")
 
-                # --- 4. LINE INTENSITY PROFILE ---
-                with st.expander("📈 Line Intensity Profile", expanded=False):
-                    st.info("Coming soon: Interactive profile plot across custom line segments for MTF/ESF analysis.")
+                # --- 4. LINE INTENSITY PROFILE (FULLY FUNCTIONAL) ---
+                with st.expander("📈 Line Intensity Profile (ESF / MTF)", expanded=False):
+                    st.markdown("Define a line profile across an edge for spatial resolution analysis:")
+                    st.checkbox("📏 Enable Line Intensity Profile", key="enable_line_profile")
+                    
+                    if st.session_state.get("enable_line_profile", False):
+                        lp_col1, lp_col2 = st.columns(2)
+                        with lp_col1:
+                            st.number_input("Start X1", 0, img_w, img_w // 4, key="lp_x1")
+                            st.number_input("Start Y1", 0, img_h, img_h // 2, key="lp_y1")
+                        with lp_col2:
+                            st.number_input("End X2", 0, img_w, 3 * img_w // 4, key="lp_x2")
+                            st.number_input("End Y2", 0, img_h, img_h // 2, key="lp_y2")
 
                 # --- 5. ADVANCED SNR & CNR METRICS ---
                 with st.expander("🔬 Advanced SNR & CNR Metrics", expanded=False):
@@ -475,6 +491,36 @@ with tab2:
                         "Max": f"{d['Max']:.1f}"
                     } for d in roi_summary_data])
                     st.table(df_display)
+
+            # --- DEDICATED FULL-WIDTH LINE INTENSITY PROFILE PLOT (IF ENABLED) ---
+            if st.session_state.get("enable_line_profile", False):
+                st.markdown("---")
+                st.subheader("📈 Line Intensity Profile Analysis (ESF / Edge Spread Function)")
+                
+                lx1 = st.session_state.get("lp_x1", img_w // 4)
+                ly1 = st.session_state.get("lp_y1", img_h // 2)
+                lx2 = st.session_state.get("lp_x2", 3 * img_w // 4)
+                ly2 = st.session_state.get("lp_y2", img_h // 2)
+                
+                # Extract pixel intensity values along line using Bresenham / np.linspace
+                num_points = int(np.hypot(lx2 - lx1, ly2 - ly1))
+                if num_points > 1:
+                    x_coords = np.linspace(lx1, lx2, num_points)
+                    y_coords = np.linspace(ly1, ly2, num_points)
+                    
+                    # Nearest neighbor sampling
+                    profile_values = img_data[np.clip(np.round(y_coords).astype(int), 0, img_h - 1),
+                                              np.clip(np.round(x_coords).astype(int), 0, img_w - 1)]
+                    
+                    distances_mm = np.linspace(0, num_points * pixel_spacing_val, num_points)
+                    
+                    fig_lp, ax_lp = plt.subplots(figsize=(10, 3.5))
+                    ax_lp.plot(distances_mm, profile_values, color='crimson', linewidth=2)
+                    ax_lp.set_title(f"Intensity Profile along Line ({modality} - {unit_label})", fontsize=11, weight='bold')
+                    ax_lp.set_xlabel("Distance along line (mm)", fontsize=10)
+                    ax_lp.set_ylabel(f"Pixel Value / Unit ({unit_label})", fontsize=10)
+                    ax_lp.grid(True, linestyle='--', alpha=0.6)
+                    st.pyplot(fig_lp)
 
             st.markdown("---")
             col_meta1, col_meta2 = st.columns(2)
