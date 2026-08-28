@@ -248,7 +248,7 @@ with tab2:
                         norm_g = np.clip((img_adjusted - min_v) / (max_v - min_v), 0, 1)
                         img_adjusted = min_v + (norm_g ** gamma_val) * (max_v - min_v)
                     
-                    # Apply Spatial Filters & Sharpness via PIL & SciPy/PIL equivalents
+                    # Apply Spatial Filters & Sharpness via PIL
                     norm_p = np.clip((img_adjusted - min_v) / (max_v - min_v + 1e-5) * 255, 0, 255).astype(np.uint8)
                     pil_img = Image.fromarray(norm_p)
                     
@@ -348,6 +348,18 @@ with tab2:
                         dist_mm = dist_pixels * pixel_spacing_val
                         ax.text((rx1+rx2)/2, ((ry1+ry2)/2) - 10, f"{dist_mm:.1f} mm", color='yellow', fontsize=10, weight='bold', backgroundcolor='black')
 
+                    # --- RENDER LINE INTENSITY PROFILE OVERLAY ON VIEWER IF ENABLED ---
+                    enable_lp = st.session_state.get("enable_line_profile", False)
+                    if enable_lp:
+                        lx1 = st.session_state.get("lp_x1", img_w // 4)
+                        ly1 = st.session_state.get("lp_y1", img_h // 2)
+                        lx2 = st.session_state.get("lp_x2", 3 * img_w // 4)
+                        ly2 = st.session_state.get("lp_y2", img_h // 2)
+                        
+                        ax.plot([lx1, lx2], [ly1, ly2], color='cyan', linewidth=2.5, linestyle='--', marker='x', markersize=8)
+                        ax.text(lx1, ly1 - 10, "Start", color='cyan', fontsize=9, weight='bold', backgroundcolor='black')
+                        ax.text(lx2, ly2 - 10, "End", color='cyan', fontsize=9, weight='bold', backgroundcolor='black')
+
                     st.pyplot(fig)
                     
                     img_buf = io.BytesIO()
@@ -421,7 +433,7 @@ with tab2:
                         m_dist = p_dist * st.session_state.calib_spacing
                         st.info(f"📐 **Ruler Length:** `{p_dist:.1f} px` | `{m_dist:.2f} mm`")
 
-                # --- 4. LINE INTENSITY PROFILE (FULLY FUNCTIONAL) ---
+                # --- 4. LINE INTENSITY PROFILE (ESF / MTF) ---
                 with st.expander("📈 Line Intensity Profile (ESF / MTF)", expanded=False):
                     st.markdown("Define a line profile across an edge for spatial resolution analysis:")
                     st.checkbox("📏 Enable Line Intensity Profile", key="enable_line_profile")
@@ -492,35 +504,65 @@ with tab2:
                     } for d in roi_summary_data])
                     st.table(df_display)
 
-            # --- DEDICATED FULL-WIDTH LINE INTENSITY PROFILE PLOT (IF ENABLED) ---
+            # --- DEDICATED FULL-WIDTH LINE INTENSITY PROFILE (ESF & MTF) ---
             if st.session_state.get("enable_line_profile", False):
                 st.markdown("---")
-                st.subheader("📈 Line Intensity Profile Analysis (ESF / Edge Spread Function)")
+                st.subheader("📈 Spatial Resolution Analysis: ESF & MTF")
                 
                 lx1 = st.session_state.get("lp_x1", img_w // 4)
                 ly1 = st.session_state.get("lp_y1", img_h // 2)
                 lx2 = st.session_state.get("lp_x2", 3 * img_w // 4)
                 ly2 = st.session_state.get("lp_y2", img_h // 2)
                 
-                # Extract pixel intensity values along line using Bresenham / np.linspace
                 num_points = int(np.hypot(lx2 - lx1, ly2 - ly1))
                 if num_points > 1:
                     x_coords = np.linspace(lx1, lx2, num_points)
                     y_coords = np.linspace(ly1, ly2, num_points)
                     
-                    # Nearest neighbor sampling
                     profile_values = img_data[np.clip(np.round(y_coords).astype(int), 0, img_h - 1),
                                               np.clip(np.round(x_coords).astype(int), 0, img_w - 1)]
                     
                     distances_mm = np.linspace(0, num_points * pixel_spacing_val, num_points)
                     
-                    fig_lp, ax_lp = plt.subplots(figsize=(10, 3.5))
-                    ax_lp.plot(distances_mm, profile_values, color='crimson', linewidth=2)
-                    ax_lp.set_title(f"Intensity Profile along Line ({modality} - {unit_label})", fontsize=11, weight='bold')
-                    ax_lp.set_xlabel("Distance along line (mm)", fontsize=10)
-                    ax_lp.set_ylabel(f"Pixel Value / Unit ({unit_label})", fontsize=10)
-                    ax_lp.grid(True, linestyle='--', alpha=0.6)
-                    st.pyplot(fig_lp)
+                    # 1. ESF Plot
+                    fig_esf, ax_esf = plt.subplots(figsize=(10, 3.2))
+                    ax_esf.plot(distances_mm, profile_values, color='crimson', linewidth=2)
+                    ax_esf.set_title(f"Edge Spread Function (ESF) — {modality} ({unit_label})", fontsize=11, weight='bold')
+                    ax_esf.set_xlabel("Distance along edge (mm)", fontsize=10)
+                    ax_esf.set_ylabel(f"Pixel Value / Unit ({unit_label})", fontsize=10)
+                    ax_esf.grid(True, linestyle='--', alpha=0.6)
+                    st.pyplot(fig_esf)
+                    
+                    esf_buf = io.BytesIO()
+                    fig_esf.savefig(esf_buf, format="png", bbox_inches='tight', dpi=150)
+                    esf_buf.seek(0)
+                    st.download_button("📥 Download ESF Plot PNG", esf_buf, file_name="esf_plot.png", mime="image/png")
+
+                    # 2. MTF Calculation via Derivative (LSF) + FFT
+                    lsf = np.abs(np.gradient(profile_values))
+                    if np.sum(lsf) > 0:
+                        lsf = lsf / np.sum(lsf) # normalize
+                        fft_vals = np.abs(np.fft.rfft(lsf))
+                        if fft_vals[0] > 0:
+                            mtf = fft_vals / fft_vals[0] # normalize MTF(0) = 1
+                            
+                            # spatial frequency axis (cycles/mm)
+                            dx = pixel_spacing_val if pixel_spacing_val > 0 else 1.0
+                            freqs = np.fft.rfftfreq(len(lsf), d=dx)
+                            
+                            fig_mtf, ax_mtf = plt.subplots(figsize=(10, 3.2))
+                            ax_mtf.plot(freqs, mtf, color='navy', linewidth=2)
+                            ax_mtf.set_title("Modulation Transfer Function (MTF)", fontsize=11, weight='bold')
+                            ax_mtf.set_xlabel("Spatial Frequency (cycles/mm)", fontsize=10)
+                            ax_mtf.set_ylabel("Modulation Factor (MTF)", fontsize=10)
+                            ax_mtf.set_ylim(0, 1.05)
+                            ax_mtf.grid(True, linestyle='--', alpha=0.6)
+                            st.pyplot(fig_mtf)
+                            
+                            mtf_buf = io.BytesIO()
+                            fig_mtf.savefig(mtf_buf, format="png", bbox_inches='tight', dpi=150)
+                            mtf_buf.seek(0)
+                            st.download_button("📥 Download MTF Plot PNG", mtf_buf, file_name="mtf_plot.png", mime="image/png")
 
             st.markdown("---")
             col_meta1, col_meta2 = st.columns(2)
