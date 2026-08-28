@@ -333,7 +333,7 @@ with tab2:
                                 "Max": np.max(roi_pixels)
                             })
 
-                    # --- RENDER DISTANCE RULER (THIN LINE) ---
+                    # --- RENDER DISTANCE RULER (THIN LINE + ONLY DOTS AT ENDS) ---
                     enable_ruler = st.session_state.get("enable_ruler", False)
                     pixel_spacing_val = st.session_state.get("calib_spacing", 1.0)
 
@@ -343,12 +343,9 @@ with tab2:
                         rx2 = st.session_state.get("ruler_x2", 3 * img_w // 4)
                         ry2 = st.session_state.get("ruler_y2", img_h // 2)
                         
-                        ax.plot([rx1, rx2], [ry1, ry2], color='yellow', linewidth=1.2, marker='o', markersize=3)
-                        dist_pixels = np.sqrt((rx2 - rx1)**2 + (ry2 - ry1)**2)
-                        dist_mm = dist_pixels * pixel_spacing_val
-                        ax.text((rx1+rx2)/2, ((ry1+ry2)/2) - 8, f"{dist_mm:.1f} mm", color='yellow', fontsize=9, weight='bold', backgroundcolor='black')
+                        ax.plot([rx1, rx2], [ry1, ry2], color='yellow', linewidth=1.0, marker='o', markersize=4)
 
-                    # --- RENDER LINE INTENSITY PROFILE OVERLAY (#1 & #2 THIN MARKERS) ---
+                    # --- RENDER LINE INTENSITY PROFILE OVERLAY (THIN DASHED LINE + ONLY DOTS) ---
                     enable_lp = st.session_state.get("enable_line_profile", False)
                     if enable_lp:
                         lx1 = st.session_state.get("lp_x1", img_w // 4)
@@ -356,9 +353,7 @@ with tab2:
                         lx2 = st.session_state.get("lp_x2", 3 * img_w // 4)
                         ly2 = st.session_state.get("lp_y2", img_h // 2)
                         
-                        ax.plot([lx1, lx2], [ly1, ly2], color='cyan', linewidth=1.2, linestyle='--', marker='+', markersize=6)
-                        ax.text(lx1 + 3, ly1 - 3, "#1", color='cyan', fontsize=8, weight='bold', backgroundcolor='black')
-                        ax.text(lx2 + 3, ly2 - 3, "#2", color='cyan', fontsize=8, weight='bold', backgroundcolor='black')
+                        ax.plot([lx1, lx2], [ly1, ly2], color='cyan', linewidth=1.0, linestyle='--', marker='o', markersize=4)
 
                     st.pyplot(fig)
                     
@@ -469,7 +464,7 @@ with tab2:
                         st.warning("Enable and configure ROIs in 'Multi-ROI Analysis' to calculate metrics.")
 
                 # --- 6. UNIFORMITY & NOISE ANALYZER (NEW QC TOOL) ---
-                with st.expander("🎯 Uniformity & Noise Analyzer (QC)", expanded=False):
+                with st.expander("🎯 Uniformity & Noise Analyzer", expanded=False):
                     if roi_summary_data:
                         means_dict = {d["ROI Name"]: d["Mean"] for d in roi_summary_data}
                         stds_dict = {d["ROI Name"]: d["StdDev"] for d in roi_summary_data}
@@ -484,7 +479,6 @@ with tab2:
                                 st.markdown("**Peripheral Uniformity Assessment:**")
                                 for p_name in periph_names:
                                     p_mean = means_dict[p_name]
-                                    # Uniformity formula: 100 * (1 - |P_mean - C_mean| / C_mean)
                                     unif_pct = 100.0 * (1.0 - abs(p_mean - c_mean) / (abs(c_mean) + 1e-5))
                                     unif_vals.append(unif_pct)
                                     st.write(f"- **{p_name} Uniformity:** `{unif_pct:.1f}%`")
@@ -579,10 +573,10 @@ with tab2:
                     # 2. MTF Calculation via Derivative (LSF) + FFT
                     lsf = np.abs(np.gradient(profile_values))
                     if np.sum(lsf) > 0:
-                        lsf = lsf / np.sum(lsf) # normalize
+                        lsf = lsf / np.sum(lsf)
                         fft_vals = np.abs(np.fft.rfft(lsf))
                         if fft_vals[0] > 0:
-                            mtf = fft_vals / fft_vals[0] # normalize MTF(0) = 1
+                            mtf = fft_vals / fft_vals[0]
                             
                             dx = pixel_spacing_val if pixel_spacing_val > 0 else 1.0
                             freqs = np.fft.rfftfreq(len(lsf), d=dx)
