@@ -144,6 +144,7 @@ with tab1:
     st.subheader("Anonymization Settings")
     base_replacement_id = st.text_input("Base Prefix for Anonymized ID", value="ANON_PATIENT")
     remove_dates = st.checkbox("Remove Birth Dates & Study Dates*", value=True)
+    st.caption("*Recommended for complete clinical data de-identification and privacy compliance.")
 
     if uploaded_zip is not None:
         if st.button("Run Anonymization"):
