@@ -67,7 +67,7 @@ def generate_demo_ct():
     y, x = np.ogrid[:512, :512]
     mask = (x - 256)**2 + (y - 256)**2 <= 100**2
     img_array = np.zeros((512, 512), dtype=np.int16) - 1000
-    img_array[mask] = 0  # Water phantom = 0 HU
+    img_array[mask] = 0  # Water phantom region = 0 HU
     ds.PixelData = img_array.tobytes()
     
     out_bytes = io.BytesIO()
@@ -256,7 +256,6 @@ with tab2:
                         except Exception:
                             continue
                     
-                    # Sort datasets along Z-axis by ImagePositionPatient[2]
                     def get_z_coord(d):
                         try:
                             return float(d.ImagePositionPatient[2])
@@ -378,6 +377,7 @@ with tab2:
                 img_h, img_w = img_data.shape
                 cx_default, cy_default = img_w // 2, img_h // 2
                 
+                # --- 1. Multi-ROI Drawing ---
                 roi_summary_data = []
                 roi_configs_all = [
                     {"name": "Center", "default_dx": 0, "default_dy": 0, "color": "red"},
@@ -425,6 +425,7 @@ with tab2:
                             "Max": np.max(roi_pixels)
                         })
 
+                # --- 2. Distance Ruler Drawing ---
                 enable_ruler = st.session_state.get("enable_ruler", False)
                 pixel_spacing_val = st.session_state.get("calib_spacing", 1.0)
                 if enable_ruler:
@@ -432,18 +433,69 @@ with tab2:
                     ry1 = st.session_state.get("ruler_y1", img_h // 2)
                     rx2 = st.session_state.get("ruler_x2", 3 * img_w // 4)
                     ry2 = st.session_state.get("ruler_y2", img_h // 2)
-                    ax.plot([rx1, rx2], [ry1, ry2], color='yellow', linewidth=1.0, marker='o', markersize=4)
+                    ax.plot([rx1, rx2], [ry1, ry2], color='yellow', linewidth=1.0, marker='o', markersize=3)
 
+                # --- 3. Pixel Probe (Live Crosshair Drawing) ---
+                enable_probe = st.session_state.get("enable_probe", False)
+                if enable_probe:
+                    pr_x = int(st.session_state.get("probe_x", img_w // 2))
+                    pr_y = int(st.session_state.get("probe_y", img_h // 2))
+                    arm = 6
+                    ax.plot([pr_x - arm, pr_x + arm], [pr_y, pr_y], color='darkorange', linewidth=1.2)
+                    ax.plot([pr_x, pr_x], [pr_y - arm, pr_y + arm], color='darkorange', linewidth=1.2)
+
+                # --- 4. Goniometer / Angle Tool Drawing ---
+                enable_angle = st.session_state.get("enable_angle", False)
+                if enable_angle:
+                    vx = st.session_state.get("ang_vx", img_w // 2)
+                    vy = st.session_state.get("ang_vy", img_h // 2)
+                    ax_pt = st.session_state.get("ang_ax", img_w // 4)
+                    ay_pt = st.session_state.get("ang_ay", img_h // 4)
+                    bx_pt = st.session_state.get("ang_bx", 3 * img_w // 4)
+                    by_pt = st.session_state.get("ang_by", img_h // 4)
+                    
+                    ax.plot([ax_pt, vx, bx_pt], [ay_pt, vy, by_pt], color='lime', linewidth=1.0, linestyle='-')
+                    ax.plot([vx], [vy], marker='o', color='red', markersize=4)
+                    ax.plot([ax_pt], [ay_pt], marker='o', color='yellow', markersize=3)
+                    ax.plot([bx_pt], [by_pt], marker='o', color='yellow', markersize=3)
+
+                # --- 5. Magnifier / Loupe Bounding Box Drawing ---
+                enable_mag = st.session_state.get("enable_mag", False)
+                if enable_mag:
+                    mag_cx = int(st.session_state.get("mag_x", img_w // 2))
+                    mag_cy = int(st.session_state.get("mag_y", img_h // 2))
+                    mag_box_size = int(st.session_state.get("mag_box_sz", 60))
+                    
+                    mx1 = max(0, mag_cx - mag_box_size // 2)
+                    mx2 = min(img_w, mag_cx + mag_box_size // 2)
+                    my1 = max(0, mag_cy - mag_box_size // 2)
+                    my2 = min(img_h, mag_cy + mag_box_size // 2)
+                    
+                    mag_rect = patches.Rectangle((mx1, my1), mx2 - mx1, my2 - my1, linewidth=1.2, edgecolor='magenta', linestyle='--', facecolor='none')
+                    ax.add_patch(mag_rect)
+
+                # --- 6. Line Profile Overlay Drawing ---
                 enable_lp = st.session_state.get("enable_line_profile", False)
                 if enable_lp:
                     lx1 = st.session_state.get("lp_x1", img_w // 4)
                     ly1 = st.session_state.get("lp_y1", img_h // 2)
                     lx2 = st.session_state.get("lp_x2", 3 * img_w // 4)
                     ly2 = st.session_state.get("lp_y2", img_h // 2)
-                    ax.plot([lx1, lx2], [ly1, ly2], color='cyan', linewidth=1.0, linestyle='--', marker='o', markersize=4)
+                    ax.plot([lx1, lx2], [ly1, ly2], color='cyan', linewidth=1.0, linestyle='--', marker='o', markersize=3)
 
                 st.pyplot(fig)
                 
+                # --- Magnifier Inset Sub-Plot Window ---
+                if enable_mag:
+                    mag_factor = st.session_state.get("mag_factor", 2)
+                    mag_crop = img_data[my1:my2, mx1:mx2]
+                    if mag_crop.size > 0:
+                        st.markdown(f"🔍 **Magnifier / Loupe Inset View ({mag_factor}x Zoom):**")
+                        fig_mag, ax_mag = plt.subplots(figsize=(3.5, 3.5))
+                        ax_mag.imshow(mag_crop, cmap=colormap_choice)
+                        ax_mag.axis('off')
+                        st.pyplot(fig_mag)
+
                 img_buf = io.BytesIO()
                 fig.savefig(img_buf, format="png", bbox_inches='tight', dpi=150)
                 img_buf.seek(0)
@@ -485,8 +537,8 @@ with tab2:
                             st.slider(f"Radius ({r_name})", min_value=5, max_value=50, value=20, key=f"rad_{r_name}")
                         st.divider()
 
-            # --- 3. Distance Ruler ---
-            with st.expander("📏 Distance Ruler & Calibration", expanded=False):
+            # --- 3. Distance Ruler, Calibration & Pixel Probe ---
+            with st.expander("📏 Distance Ruler, Calibration & Pixel Probe", expanded=False):
                 auto_sp = 1.0
                 if hasattr(ds, "PixelSpacing") and ds.PixelSpacing:
                     try:
@@ -496,6 +548,8 @@ with tab2:
                 st.markdown(f"📌 **Auto-detected Pixel Spacing:** `{auto_sp:.4f} mm/pixel`")
                 st.number_input("Resolution (mm/pixel) - Manual Override", min_value=0.001, value=auto_sp, format="%.4f", key="calib_spacing")
                 st.markdown("---")
+                
+                # Distance Ruler Sub-Tool
                 st.checkbox("📏 Enable Distance Ruler", key="enable_ruler")
                 if st.session_state.get("enable_ruler", False):
                     col_r1, col_r2 = st.columns(2)
@@ -511,8 +565,70 @@ with tab2:
                     p_dist = np.sqrt(dx**2 + dy**2)
                     m_dist = p_dist * st.session_state.calib_spacing
                     st.info(f"📐 **Ruler Length:** `{p_dist:.1f} px` | `{m_dist:.2f} mm`")
+                
+                st.markdown("---")
+                # Pixel / HU Probe Sub-Tool
+                st.checkbox("🎯 Enable Live Pixel / HU Probe", key="enable_probe")
+                if st.session_state.get("enable_probe", False):
+                    c_pr1, c_pr2 = st.columns(2)
+                    with c_pr1:
+                        pr_x_in = st.slider("Probe X", 0, img_w - 1, img_w // 2, key="probe_x")
+                    with c_pr2:
+                        pr_y_in = st.slider("Probe Y", 0, img_h - 1, img_h // 2, key="probe_y")
+                    
+                    val_probe = img_data[pr_y_in, pr_x_in]
+                    st.success(f"📍 **Position:** `(X: {pr_x_in}, Y: {pr_y_in})` | **Value:** `{val_probe:.2f} {unit_label}`")
 
-            # --- 4. Line Intensity Profile ---
+            # --- 4. Angle & Goniometer Tool ---
+            with st.expander("📐 Angle & Goniometer Tool", expanded=False):
+                st.markdown("Measure anatomical or geometric angles ($\theta^\circ$) using 3 points:")
+                st.checkbox("📐 Enable Goniometer", key="enable_angle")
+                if st.session_state.get("enable_angle", False):
+                    st.markdown("**1. Vertex Point (Κορυφή):**")
+                    col_v1, col_v2 = st.columns(2)
+                    with col_v1: st.number_input("Vertex X", 0, img_w, img_w // 2, key="ang_vx")
+                    with col_v2: st.number_input("Vertex Y", 0, img_h, img_h // 2, key="ang_vy")
+                    
+                    st.markdown("**2. Arm Point A:**")
+                    col_a1, col_a2 = st.columns(2)
+                    with col_a1: st.number_input("Point A X", 0, img_w, img_w // 4, key="ang_ax")
+                    with col_a2: st.number_input("Point A Y", 0, img_h, img_h // 4, key="ang_ay")
+                    
+                    st.markdown("**3. Arm Point B:**")
+                    col_b1, col_b2 = st.columns(2)
+                    with col_b1: st.number_input("Point B X", 0, img_w, 3 * img_w // 4, key="ang_bx")
+                    with col_b2: st.number_input("Point B Y", 0, img_h, img_h // 4, key="ang_by")
+                    
+                    # Vector angle calculation via dot product
+                    v = np.array([st.session_state.ang_vx, st.session_state.ang_vy], dtype=float)
+                    pt_a = np.array([st.session_state.ang_ax, st.session_state.ang_ay], dtype=float)
+                    pt_b = np.array([st.session_state.ang_bx, st.session_state.ang_by], dtype=float)
+                    
+                    vec1 = pt_a - v
+                    vec2 = pt_b - v
+                    
+                    norm1, norm2 = np.linalg.norm(vec1), np.linalg.norm(vec2)
+                    if norm1 > 0 and norm2 > 0:
+                        cos_theta = np.clip(np.dot(vec1, vec2) / (norm1 * norm2), -1.0, 1.0)
+                        angle_deg = np.degrees(np.arccos(cos_theta))
+                        st.info(f"📐 **Measured Angle ($\theta$):** `{angle_deg:.2f}°`")
+                    else:
+                        st.warning("Ensure Arm points are not overlapping with the Vertex.")
+
+            # --- 5. Interactive Magnifier / Zoom Loupe ---
+            with st.expander("🔍 Magnifier / Zoom Loupe", expanded=False):
+                st.markdown("Locally zoom in on microcalcifications or sharp edges:")
+                st.checkbox("🔍 Enable Magnifier", key="enable_mag")
+                if st.session_state.get("enable_mag", False):
+                    col_mg1, col_mg2 = st.columns(2)
+                    with col_mg1:
+                        st.slider("Magnifier Center X", 0, img_w, img_w // 2, key="mag_x")
+                        st.selectbox("Zoom Factor", [2, 4], index=0, key="mag_factor")
+                    with col_mg2:
+                        st.slider("Magnifier Center Y", 0, img_h, img_h // 2, key="mag_y")
+                        st.slider("Inspection Box Size (px)", 20, 120, 60, step=10, key="mag_box_sz")
+
+            # --- 6. Line Intensity Profile ---
             with st.expander("📈 Line Intensity Profile (ESF / MTF)", expanded=False):
                 st.markdown("Define a line profile across an edge for spatial resolution analysis:")
                 st.checkbox("📏 Enable Line Intensity Profile", key="enable_line_profile")
@@ -525,7 +641,7 @@ with tab2:
                         st.number_input("X2 (#2)", 0, img_w, 3 * img_w // 4, key="lp_x2")
                         st.number_input("Y2 (#2)", 0, img_h, img_h // 2, key="lp_y2")
 
-            # --- 5. SNR & CNR Metrics ---
+            # --- 7. SNR & CNR Metrics ---
             with st.expander("🔬 Advanced SNR & CNR Metrics", expanded=False):
                 if roi_summary_data:
                     st.markdown("**SNR per Active ROI:**")
@@ -556,7 +672,7 @@ with tab2:
                 else:
                     st.warning("Enable and configure ROIs in 'Multi-ROI Analysis' to calculate metrics.")
 
-            # --- 6. Uniformity & Noise Analyzer ---
+            # --- 8. Uniformity & Noise Analyzer ---
             with st.expander("🎯 Uniformity & Noise Analyzer", expanded=False):
                 if roi_summary_data:
                     means_dict = {d["ROI Name"]: d["Mean"] for d in roi_summary_data}
@@ -612,7 +728,7 @@ with tab2:
                 else:
                     st.warning("Enable ROIs in Multi-ROI Analysis first.")
 
-            # --- 7. Header Editor ---
+            # --- 9. Header Editor ---
             with st.expander("✏️ DICOM Header Editor & Fixer", expanded=False):
                 st.markdown("Modify core metadata tags and download the updated DICOM slice:")
                 new_pname = st.text_input("Patient Name", value=str(getattr(ds, "PatientName", "")))
@@ -744,7 +860,6 @@ with tab2:
                 df_tags = df_tags[df_tags.apply(lambda row: row.astype(str).str.contains(tag_search, case=False).any(), axis=1)]
             st.dataframe(df_tags, use_container_width=True)
 
-
 # ==================== TAB 3: BATCH CSV REPORT GENERATOR (DRL-ALIGNED) ====================
 with tab3:
     st.header("📊 Batch DRLs & Dataset CSV Report Generator")
@@ -753,7 +868,6 @@ with tab3:
     Select your modality type before uploading your ZIP archive.
     """)
 
-    # 1. Dataset Modality Selector
     modality_category = st.radio(
         "📌 Select Examination / Modality Type:",
         [
@@ -778,7 +892,7 @@ with tab3:
                 with zipfile.ZipFile(batch_zip, 'r') as zip_in:
                     all_filenames = [f for f in zip_in.namelist() if f.endswith(('.dcm', '.DCM')) or '.' not in f.split('/')[-1]]
                     
-                          if "Radiography" in modality_category:
+                    if "Radiography" in modality_category:
                         # --- 1. RADIOGRAPHY (DX / CR / DEXA) MODE ---
                         for filename in all_filenames:
                             file_content = zip_in.read(filename)
@@ -791,11 +905,10 @@ with tab3:
                                 except:
                                     exp_sec = str(exp_time)
 
-                                # DAP / KAP in Gy*cm2 or dGy*cm2
                                 dap_val = getattr(ds, "ImageAndFluoroscopyAreaDoseProduct", "N/A")
                                 entrance_dose = getattr(ds, "EntranceDoseInmGy", getattr(ds, "OrganDose", "N/A"))
 
-                                # --- Physical Field Size at Detector Plane (mm / cm) ---
+                                # Physical Field Size at Detector Plane
                                 fov_dim = getattr(ds, "FieldOfViewDimensions", None)
                                 if fov_dim is not None:
                                     if isinstance(fov_dim, (list, tuple, pydicom.multival.MultiValue)) and len(fov_dim) >= 2:
@@ -803,7 +916,6 @@ with tab3:
                                     else:
                                         field_size_str = f"{fov_dim} mm"
                                 else:
-                                    # Fallback to ImagerPixelSpacing / PixelSpacing * Matrix dimensions
                                     imager_spacing = getattr(ds, "ImagerPixelSpacing", getattr(ds, "PixelSpacing", None))
                                     rows = getattr(ds, "Rows", None)
                                     cols = getattr(ds, "Columns", None)
@@ -839,7 +951,6 @@ with tab3:
                             except Exception:
                                 continue
 
-
                     elif "Mammography" in modality_category:
                         # --- 2. MAMMOGRAPHY (MG) MODE ---
                         for filename in all_filenames:
@@ -851,7 +962,6 @@ with tab3:
                                 filter_mat = str(getattr(ds, "FilterMaterial", ""))
                                 target_filter = f"{target}/{filter_mat}" if target or filter_mat else "N/A"
 
-                                # ESAK / Entrance Dose & MGD (Organ Dose)
                                 esak_val = getattr(ds, "EntranceDoseInmGy", "N/A")
                                 mgd_val = getattr(ds, "OrganDose", "N/A")
                                 dap_val = getattr(ds, "ImageAndFluoroscopyAreaDoseProduct", "N/A")
@@ -883,8 +993,6 @@ with tab3:
                             file_content = zip_in.read(filename)
                             try:
                                 ds = pydicom.dcmread(io.BytesIO(file_content))
-                                
-                                # Helical Filter check
                                 acq_type = str(getattr(ds, "AcquisitionType", "")).upper()
                                 
                                 patient_id = str(getattr(ds, "PatientID", "UNKNOWN_PATIENT"))
@@ -892,7 +1000,6 @@ with tab3:
                                 group_key = f"{patient_id}_{series_uid}"
                                 
                                 if group_key not in ct_groups:
-                                    # Phantom / Anatomy detection (Head 16cm vs Body 32cm)
                                     body_part = str(getattr(ds, "BodyPartExamined", "")).upper()
                                     study_desc = str(getattr(ds, "StudyDescription", "")).upper()
                                     series_desc = str(getattr(ds, "SeriesDescription", "")).upper()
@@ -933,13 +1040,12 @@ with tab3:
                         for k, v in ct_groups.items():
                             total_slices = v["Slice_Count"]
                             thickness = v["Slice Thickness"]
-                            z_coverage_cm = (total_slices * thickness) / 10.0  # mm to cm
+                            z_coverage_cm = (total_slices * thickness) / 10.0
                             avg_hu = np.mean(v["MeanHU_vals"]) if v["MeanHU_vals"] else 0.0
                             
                             ctdi = v["CTDIvol"]
                             scan_dlp = v["Scan_DLP"]
                             
-                            # Calculate Scan Length if CTDI & DLP available: Scan Length = DLP / CTDIvol
                             if scan_dlp is not None and ctdi is not None and ctdi > 0:
                                 scan_length_calc_cm = scan_dlp / ctdi
                             else:
@@ -947,7 +1053,6 @@ with tab3:
                                 if scan_dlp is None and ctdi is not None:
                                     scan_dlp = ctdi * z_coverage_cm
                             
-                            # DLP Head vs Body allocation
                             head_dlp = f"{scan_dlp:.1f}" if v["Is_Head"] and scan_dlp is not None else "-"
                             body_dlp = f"{scan_dlp:.1f}" if not v["Is_Head"] and scan_dlp is not None else "-"
                             total_dlp_val = f"{scan_dlp:.1f}" if scan_dlp is not None else "-"
