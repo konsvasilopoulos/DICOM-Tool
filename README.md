@@ -6,8 +6,10 @@ A lightweight, open-source web application built with Python and Streamlit, desi
 
 * **🔒 Batch DICOM Anonymizer:** 
   * Upload and process ZIP archives of DICOM files.
-  * Automatically strips sensitive patient metadata while preserving technical and spatial tags.
-  * Instant download of anonymized archives.
+  * Automatically strips sensitive patient metadata (PHI) while preserving technical, spatial tags, and internal series consistency.
+  * **Extended PHI & UID Management:** Optional scrubbing of operators, physicians, study/accession IDs, alongside cryptographic UID pseudonymization compliant with **DICOM Standard PS3.15 Annex E**.
+  * **Compliance Audit Trail:** Instant generation and download of detailed de-identification audit reports (`.csv`) for clinical trials and GDPR/HIPAA verification.
+  * Instant download of secured, anonymized archives.
 
 * **🔍 Inspector & Diagnostic Viewer:** 
   * **Modality-Aware Processing:** Automatically detects modalities (CT with Hounsfield Units, Radiography/Mammography with Raw Intensities).
