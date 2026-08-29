@@ -746,7 +746,7 @@ with tab3:
                 with zipfile.ZipFile(batch_zip, 'r') as zip_in:
                     all_filenames = [f for f in zip_in.namelist() if f.endswith(('.dcm', '.DCM')) or '.' not in f.split('/')[-1]]
                     
-                    if "Radiography" in modality_category:
+                          if "Radiography" in modality_category:
                         # --- 1. RADIOGRAPHY (DX / CR / DEXA) MODE ---
                         for filename in all_filenames:
                             file_content = zip_in.read(filename)
@@ -763,6 +763,30 @@ with tab3:
                                 dap_val = getattr(ds, "ImageAndFluoroscopyAreaDoseProduct", "N/A")
                                 entrance_dose = getattr(ds, "EntranceDoseInmGy", getattr(ds, "OrganDose", "N/A"))
 
+                                # --- Physical Field Size at Detector Plane (mm / cm) ---
+                                fov_dim = getattr(ds, "FieldOfViewDimensions", None)
+                                if fov_dim is not None:
+                                    if isinstance(fov_dim, (list, tuple, pydicom.multival.MultiValue)) and len(fov_dim) >= 2:
+                                        field_size_str = f"{float(fov_dim[0]):.1f} x {float(fov_dim[1]):.1f} mm"
+                                    else:
+                                        field_size_str = f"{fov_dim} mm"
+                                else:
+                                    # Fallback to ImagerPixelSpacing / PixelSpacing * Matrix dimensions
+                                    imager_spacing = getattr(ds, "ImagerPixelSpacing", getattr(ds, "PixelSpacing", None))
+                                    rows = getattr(ds, "Rows", None)
+                                    cols = getattr(ds, "Columns", None)
+                                    
+                                    if imager_spacing is not None and rows is not None and cols is not None:
+                                        try:
+                                            sp_r, sp_c = float(imager_spacing[0]), float(imager_spacing[1])
+                                            h_mm = rows * sp_r
+                                            w_mm = cols * sp_c
+                                            field_size_str = f"{w_mm:.1f} x {h_mm:.1f} mm ({w_mm/10.0:.1f} x {h_mm/10.0:.1f} cm)"
+                                        except Exception:
+                                            field_size_str = "N/A"
+                                    else:
+                                        field_size_str = "N/A"
+
                                 summary_data.append({
                                     "File Name": filename.split('/')[-1],
                                     "Patient ID": str(getattr(ds, "PatientID", "UNKNOWN")),
@@ -776,11 +800,13 @@ with tab3:
                                     "Exposure Time (s)": exp_sec,
                                     "Exposure (mAs)": str(getattr(ds, "Exposure", getattr(ds, "ExposureInmAs", "N/A"))),
                                     "SID (mm)": str(getattr(ds, "DistanceSourceToDetector", "N/A")),
+                                    "Field Size at Detector": field_size_str,
                                     "DAP (Gy*cm2)": str(dap_val),
                                     "Entrance Dose (mGy)": str(entrance_dose)
                                 })
                             except Exception:
                                 continue
+
 
                     elif "Mammography" in modality_category:
                         # --- 2. MAMMOGRAPHY (MG) MODE ---
