@@ -1,44 +1,40 @@
 # 🏥 Open-Source DICOM Toolkit for Medical Physics
 
-A lightweight, open-source web application built with Python and Streamlit, designed for medical physicists, researchers, and students. It provides a secure, local interface for DICOM file inspection, advanced image processing, quantitative QA/QC analysis, and batch anonymization.
+A lightweight, open-source web application built with Python and Streamlit, designed for medical physicists, researchers, and clinical engineers. It provides a local interface for DICOM file inspection, advanced image processing, quantitative QA/QC analysis, de-identification compliance, and batch extraction of Diagnostic Reference Levels (DRLs / ΔΕΑ).
 
 ## 🚀 Key Features
 
 * **🔒 Batch DICOM Anonymizer:** 
-  * Upload and process ZIP archives of DICOM files.
-  * Automatically strips sensitive patient metadata (PHI) while preserving technical, spatial tags, and internal series consistency.
-  * **Extended PHI & UID Management:** Optional scrubbing of operators, physicians, study/accession IDs, alongside cryptographic UID pseudonymization compliant with **DICOM Standard PS3.15 Annex E**.
-  * **Compliance Audit Trail:** Instant generation and download of detailed de-identification audit reports (`.csv`) for clinical trials and GDPR/HIPAA verification.
-  * Instant download of secured, anonymized archives.
+  * Local de-identification of DICOM ZIP archives preserving technical tags.
+  * Extended PHI scrubbing (physicians, operators, accession numbers, study IDs) following DICOM PS3.15 Annex E.
+  * Instant generation and download of HIPAA/GDPR compliance audit reports (`.csv`).
 
 * **🔍 Inspector & Diagnostic Viewer:** 
-  * **Modality-Aware Processing:** Automatically detects modalities (CT with Hounsfield Units, Radiography/Mammography with Raw Intensities).
-  * **Quick Adjustments & Filters:** Real-time controls for Brightness, Contrast, Gamma, Sharpness, and advanced spatial filters (Unsharp Mask, Median Filter, Histogram Equalization).
-  * **Multi-ROI Analysis:** Interactive coordinate and shape adjustments (Circle/Square) for Center, Top, Bottom, Left, and Right ROIs.
-  * **Distance Ruler & Calibration:** Automatic DICOM `PixelSpacing` detection with manual override for accurate physical measurements in millimeters (mm).
-  * **Line Intensity Profile (ESF & MTF):** Spatial resolution analysis extracting Edge Spread Function (ESF) and Modulation Transfer Function (MTF) along custom line profiles with automatic $MTF_{50}$ and $MTF_{10}$ metrics.
-  * **Advanced SNR & CNR Metrics:** Quantitative quality control metrics evaluating signal-to-noise and contrast-to-noise ratios across active ROIs.
-  * **Uniformity & Noise Analyzer:** Automated evaluation of field uniformity percentage, system noise (SD), and CT water calibration Pass/Fail checks.
-  * **DICOM Header Editor & Fixer:** Live metadata correction and direct download of updated `.dcm` files.
+  * **Modality-Aware Engine:** Automatic mode switching between Hounsfield Units (CT) and Pixel Intensities (Radiography / Mammography).
+  * **Image Enhancement:** Brightness, Contrast, Gamma, Sharpness, Unsharp Mask, Median Filter, and Histogram Equalization.
+  * **Multi-ROI QC:** Interactive 5-point ROI evaluation (Center, Top, Bottom, Left, Right) in circular or rectangular geometries.
+  * **Spatial Resolution (ESF & MTF):** Line Intensity Profiling extracting Edge Spread Function and Modulation Transfer Function with automatic $MTF_{50}$ and $MTF_{10}$ metrics.
+  * **Quality Control Checks:** Real-time SNR, CNR, percentage field uniformity, and CT water calibration checks ($0 \pm 4\text{ HU}$).
+  * **DICOM Editor:** In-place header editing and download of updated `.dcm` files.
 
-* **📊 Batch CSV Report Generator:** 
-  * Aggregate multiple DICOM series per patient, calculate slice counts, and export comprehensive summary reports as CSV files.
+* **📊 Batch DRLs & Dataset CSV Report Generator:** 
+  * **Radiography (DX / CR / DEXA):** Tube parameters (kVp, mA, s, mAs), SID, physical **Field Size at detector plane (mm/cm)**, DAP/KAP, and Entrance Dose.
+  * **Mammography (MG):** **Mean Glandular Dose (MGD)**, **ESAK**, compressed breast thickness, compression force, target/filter combinations, and projections (CC/MLO).
+  * **Computed Tomography (CT):** Patient/series grouping, Z-coverage, **$CTDI_{vol}$**, **Scan DLP**, **Total DLP**, calculated **Scan Length** ($\text{DLP}/\text{CTDI}_{\text{vol}}$), Helical mode detection, and Head (16 cm) vs. Body (32 cm) categorization.
 
 ## 🛡️ Privacy & Security
-All processing is performed locally in your session environment. No patient health information (PHI) is transmitted, stored, or shared externally.
+All computations are executed locally in the browser session. No medical imaging data or PHI is stored or transmitted externally.
 
 ## 🛠️ Tech Stack
-* **Python** (Core processing & scientific computing)
-* **Streamlit** (Web user interface)
-* **Pydicom** (DICOM parsing & metadata editing)
-* **NumPy / SciPy / Matplotlib** (Image analysis & plotting)
-* **Pillow (PIL)** (Spatial image filtering)
-
-## 🌐 Live Application
-* **Access the web app here:** [MedPhys DICOM Toolkit](https://dicom-tool-fcpymgt4csqtakjfw2d35r.streamlit.app/)
+* **Python** (Core computing)
+* **Streamlit** (Web application framework)
+* **Pydicom** (DICOM dataset processing)
+* **NumPy / SciPy / Matplotlib** (Image mathematics & plotting)
+* **Pillow (PIL)** (Spatial filtering)
+* **Pandas** (Tabular summary structures & CSV reports)
 
 ## 📄 License
-This project is open-source and available under the MIT License.
+This project is open-source and distributed under the [MIT License](LICENSE).
 
 ---
 **Developer / Creator:** Konstantinos G. Vasilopoulos *(Medical Physicist & Researcher)* | ✉️ `kostasvasilopoulosgr@yahoo.com`
