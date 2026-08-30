@@ -483,6 +483,13 @@ with tab2:
                     ly2 = st.session_state.get("lp_y2", img_h // 2)
                     ax.plot([lx1, lx2], [ly1, ly2], color='cyan', linewidth=1.0, linestyle='--', marker='o', markersize=3)
 
+                # --- 7. Flat-Field Bad Pixels Visualization ---
+                if st.session_state.get("show_bad_pixels", False) and "bad_pixel_coords" in st.session_state:
+                    bp_coords = st.session_state["bad_pixel_coords"]
+                    if len(bp_coords) > 0:
+                        bp_y, bp_x = zip(*bp_coords)
+                        ax.scatter(bp_x, bp_y, color='red', s=4, marker='x', label='Defective Pixels')
+
                 st.pyplot(fig)
                 
                 # --- Magnifier Inset Sub-Plot Window ---
@@ -599,7 +606,6 @@ with tab2:
                     with col_b1: st.number_input("Point B X", 0, img_w, 3 * img_w // 4, key="ang_bx")
                     with col_b2: st.number_input("Point B Y", 0, img_h, img_h // 4, key="ang_by")
                     
-                    # Vector angle calculation via dot product
                     v = np.array([st.session_state.ang_vx, st.session_state.ang_vy], dtype=float)
                     pt_a = np.array([st.session_state.ang_ax, st.session_state.ang_ay], dtype=float)
                     pt_b = np.array([st.session_state.ang_bx, st.session_state.ang_by], dtype=float)
@@ -672,61 +678,135 @@ with tab2:
                 else:
                     st.warning("Enable and configure ROIs in 'Multi-ROI Analysis' to calculate metrics.")
 
-            # --- 8. Uniformity & Noise Analyzer ---
-            with st.expander("🎯 Uniformity & Noise Analyzer", expanded=False):
-                if roi_summary_data:
-                    means_dict = {d["ROI Name"]: d["Mean"] for d in roi_summary_data}
-                    stds_dict = {d["ROI Name"]: d["StdDev"] for d in roi_summary_data}
-                    
-                    if "Center" in means_dict:
-                        c_mean = means_dict["Center"]
-                        st.markdown(f"**Center Reference Mean:** `{c_mean:.2f} {unit_label}`")
+            # --- 8A. DYNAMIC MODALITY QC: CT UNIFORMITY & WATER QC ---
+            if modality == "CT":
+                with st.expander("🎯 CT Uniformity & Water Calibration QC", expanded=False):
+                    if roi_summary_data:
+                        means_dict = {d["ROI Name"]: d["Mean"] for d in roi_summary_data}
+                        stds_dict = {d["ROI Name"]: d["StdDev"] for d in roi_summary_data}
                         
-                        if modality == "CT":
+                        if "Center" in means_dict:
+                            c_mean = means_dict["Center"]
+                            st.markdown(f"**Center Reference Mean:** `{c_mean:.2f} HU`")
+                            
                             water_diff = abs(c_mean - 0.0)
                             if water_diff <= 4.0:
                                 st.success(f"✅ **CT Water Calibration: PASS** ({c_mean:.1f} HU within 0 ± 4 HU)")
                             else:
                                 st.warning(f"⚠️ **CT Water Calibration: CHECK** ({c_mean:.1f} HU outside 0 ± 4 HU)")
-                        
-                        periph_names = [k for k in means_dict.keys() if k != "Center"]
-                        if periph_names:
-                            unif_vals = []
-                            p_items = []
-                            for p_name in periph_names:
-                                p_mean = means_dict[p_name]
-                                unif_pct = 100.0 * (1.0 - abs(p_mean - c_mean) / (abs(c_mean) + 1e-5))
-                                unif_vals.append(unif_pct)
-                                p_items.append((p_name, unif_pct))
-                                
-                            for i in range(0, len(p_items), 2):
-                                col_u1, col_u2 = st.columns(2)
-                                with col_u1:
-                                    st.write(f"- **{p_items[i][0]}:** `{p_items[i][1]:.1f}%`")
-                                with col_u2:
-                                    if i + 1 < len(p_items):
-                                        st.write(f"- **{p_items[i+1][0]}:** `{p_items[i+1][1]:.1f}%`")
                             
-                            avg_unif = np.mean(unif_vals)
-                            avg_noise = np.mean([stds_dict[k] for k in stds_dict.keys()])
+                            periph_names = [k for k in means_dict.keys() if k != "Center"]
+                            if periph_names:
+                                unif_vals = []
+                                p_items = []
+                                for p_name in periph_names:
+                                    p_mean = means_dict[p_name]
+                                    unif_pct = 100.0 * (1.0 - abs(p_mean - c_mean) / (abs(c_mean) + 1e-5))
+                                    unif_vals.append(unif_pct)
+                                    p_items.append((p_name, unif_pct))
+                                    
+                                for i in range(0, len(p_items), 2):
+                                    col_u1, col_u2 = st.columns(2)
+                                    with col_u1:
+                                        st.write(f"- **{p_items[i][0]}:** `{p_items[i][1]:.1f}%`")
+                                    with col_u2:
+                                        if i + 1 < len(p_items):
+                                            st.write(f"- **{p_items[i+1][0]}:** `{p_items[i+1][1]:.1f}%`")
+                                
+                                avg_unif = np.mean(unif_vals)
+                                avg_noise = np.mean([stds_dict[k] for k in stds_dict.keys()])
+                                
+                                st.markdown("---")
+                                col_sum1, col_sum2 = st.columns(2)
+                                with col_sum1:
+                                    st.write(f"📊 **Avg Unif:** `{avg_unif:.1f}%`")
+                                with col_sum2:
+                                    st.write(f"📉 **Noise (SD):** `{avg_noise:.2f} HU`")
+                                
+                                if avg_unif >= 90.0:
+                                    st.success("✅ **QC Status: PASS** (>= 90%)")
+                                else:
+                                    st.warning("⚠️ **QC Status: CHECK** (< 90%)")
+                            else:
+                                st.info("Enable peripheral ROIs (Top, Bottom, Left, Right) to calculate Uniformity.")
+                        else:
+                            st.warning("Enable the 'Center' ROI in Multi-ROI Analysis to perform Uniformity QC.")
+                    else:
+                        st.warning("Enable ROIs in Multi-ROI Analysis first.")
+
+            # --- 8B. DYNAMIC MODALITY QC: FLAT-FIELD DETECTOR (DX / CR / MG) ---
+            if modality in ["DX", "CR", "MG"]:
+                with st.expander("🎯 Flat-Field Uniformity & Bad Pixel Detector", expanded=False):
+                    st.markdown("Perform detector-wide uniformity checks & dead/hot pixel screening:")
+                    col_ff1, col_ff2 = st.columns(2)
+                    with col_ff1:
+                        ff_sigma_thresh = st.number_input("Outlier Threshold (Sigma)", min_value=1.5, max_value=6.0, value=3.0, step=0.5)
+                    with col_ff2:
+                        show_bp = st.checkbox("Overlay Defective Pixels on Image", value=False, key="show_bad_pixels")
+                    
+                    if st.button("🚀 Run Flat-Field Detector QA"):
+                        global_mean = np.mean(img_data)
+                        global_std = np.std(img_data)
+                        
+                        lower_bound = global_mean - ff_sigma_thresh * global_std
+                        upper_bound = global_mean + ff_sigma_thresh * global_std
+                        
+                        bad_mask = (img_data < lower_bound) | (img_data > upper_bound)
+                        bad_coords = np.argwhere(bad_mask).tolist()
+                        st.session_state["bad_pixel_coords"] = bad_coords
+                        
+                        total_px = img_data.size
+                        bad_px_count = len(bad_coords)
+                        bad_px_ratio = (bad_px_count / total_px) * 100.0
+                        
+                        min_p, max_p = np.min(img_data), np.max(img_data)
+                        ff_unif_pct = 100.0 * (1.0 - (max_p - min_p) / (max_p + min_p + 1e-5))
+                        
+                        st.markdown("---")
+                        st.write(f"- **Detector Mean Intensity:** `{global_mean:.2f}`")
+                        st.write(f"- **Global Noise (SD):** `{global_std:.2f}`")
+                        st.write(f"- **Global Uniformity:** `{ff_unif_pct:.2f}%`")
+                        st.write(f"- **Defective Pixels Identified:** `{bad_px_count}` ({bad_px_ratio:.4f}%)")
+                        
+                        if bad_px_ratio < 0.05 and ff_unif_pct >= 85.0:
+                            st.success("✅ **Flat-Field QC: PASS** (Defective pixels < 0.05%)")
+                        else:
+                            st.warning("⚠️ **Flat-Field QC: CHECK** (Inspect detector panel)")
+
+            # --- 8C. DYNAMIC MODALITY QC: MAMMOGRAPHY FOM CALCULATOR (MG ONLY) ---
+            if modality == "MG":
+                with st.expander("🌸 Mammography QC & FOM Calculator", expanded=False):
+                    st.markdown("Calculate the **Figure of Merit** ($\text{FOM} = \text{CNR}^2 / \text{MGD}$) for protocol optimization:")
+                    
+                    mgd_detected = float(getattr(ds, "OrganDose", getattr(ds, "MeanGlandularDose", 1.5)))
+                    mgd_input = st.number_input("Mean Glandular Dose - MGD (mGy)", min_value=0.01, max_value=20.0, value=mgd_detected, format="%.3f")
+                    
+                    if roi_summary_data and len(roi_summary_data) >= 2:
+                        roi_names = [d["ROI Name"] for d in roi_summary_data]
+                        col_f1, col_f2 = st.columns(2)
+                        with col_f1:
+                            target_roi = st.selectbox("Target ROI (Detail)", roi_names, index=0)
+                        with col_f2:
+                            bg_roi = st.selectbox("Background ROI", roi_names, index=1 if len(roi_names) > 1 else 0)
+                        
+                        means_map = {d["ROI Name"]: d["Mean"] for d in roi_summary_data}
+                        stds_map = {d["ROI Name"]: d["StdDev"] for d in roi_summary_data}
+                        
+                        sig_diff = abs(means_map[target_roi] - means_map[bg_roi])
+                        bg_sd = stds_map[bg_roi]
+                        
+                        if bg_sd > 0 and mgd_input > 0:
+                            calc_cnr = sig_diff / bg_sd
+                            calc_fom = (calc_cnr ** 2) / mgd_input
                             
                             st.markdown("---")
-                            col_sum1, col_sum2 = st.columns(2)
-                            with col_sum1:
-                                st.write(f"📊 **Avg Unif:** `{avg_unif:.1f}%`")
-                            with col_sum2:
-                                st.write(f"📉 **Noise (SD):** `{avg_noise:.2f}`")
-                            
-                            if avg_unif >= 90.0:
-                                st.success("✅ **QC Status: PASS** (>= 90%)")
-                            else:
-                                st.warning("⚠️ **QC Status: CHECK** (< 90%)")
+                            st.info(f"📊 **Calculated CNR:** `{calc_cnr:.2f}`")
+                            st.success(f"🏆 **Figure of Merit (FOM):** `{calc_fom:.3f} mGy⁻¹`")
+                            st.caption("Higher FOM indicates superior image contrast per unit glandular dose.")
                         else:
-                            st.info("Enable peripheral ROIs (Top, Bottom, Left, Right) to calculate Uniformity.")
+                            st.warning("Background Standard Deviation must be non-zero.")
                     else:
-                        st.warning("Enable the 'Center' ROI in Multi-ROI Analysis to perform Uniformity QC.")
-                else:
-                    st.warning("Enable ROIs in Multi-ROI Analysis first.")
+                        st.warning("Enable at least 2 ROIs (e.g. Center as target and Top as background) in Multi-ROI Analysis.")
 
             # --- 9. Header Editor ---
             with st.expander("✏️ DICOM Header Editor & Fixer", expanded=False):
@@ -902,7 +982,7 @@ with tab3:
                                 exp_time = getattr(ds, "ExposureTime", "N/A")
                                 try:
                                     exp_sec = f"{float(exp_time)/1000.0:.3f}" if float(exp_time) > 10 else f"{float(exp_time):.3f}"
-                                except:
+                                except Exception:
                                     exp_sec = str(exp_time)
 
                                 dap_val = getattr(ds, "ImageAndFluoroscopyAreaDoseProduct", "N/A")
