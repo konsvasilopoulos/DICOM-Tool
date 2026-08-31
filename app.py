@@ -29,9 +29,8 @@ with st.sidebar:
     st.markdown("👨‍💻 **Konstantinos G. Vasilopoulos**")
     st.markdown("*Medical Physicist & Researcher*")
     st.markdown("✉️ **Email:** `kostasvasilopoulosgr@yahoo.com`")
-    st.markdown("") # Blank space
+    st.markdown("") 
     
-    # --- DOWNLOAD MANUAL PDF BUTTON   ---
     try:
         with open("MedPhys_Toolkit_Manual.pdf", "rb") as pdf_file:
             st.download_button(
@@ -44,6 +43,7 @@ with st.sidebar:
         st.caption("📄 User Manual: Uploading soon...")
         
     st.divider()
+
 # --- MAIN PAGE ---
 st.title("🏥 Open-Source DICOM Toolkit for Medical Physics")
 st.markdown("""
@@ -80,7 +80,7 @@ def generate_demo_ct():
     y, x = np.ogrid[:512, :512]
     mask = (x - 256)**2 + (y - 256)**2 <= 100**2
     img_array = np.zeros((512, 512), dtype=np.int16) - 1000
-    img_array[mask] = 0  # Water phantom region = 0 HU
+    img_array[mask] = 0  
     ds.PixelData = img_array.tobytes()
     
     out_bytes = io.BytesIO()
@@ -294,74 +294,6 @@ with tab2:
         station_name = str(getattr(ref_ds, "StationName", "")).upper()
         is_portable = "PORTABLE" in study_desc or "MOBILE" in study_desc or "PORTABLE" in station_name or "MOBILE" in station_name
         
-        view_plane = "Axial (Z)"
-        aspect_ratio = 1.0
-
-        if total_slices > 1:
-            st.info(f"📌 **3D Volume Detected:** `{total_slices} slices` found. Use MPR to navigate anatomical planes.")
-            
-            view_plane = st.radio("📐 **MPR View Plane Selection:**", ["Axial (Z)", "Coronal (Y)", "Sagittal (X)"], horizontal=True)
-            
-            z_dim = total_slices
-            y_dim, x_dim = ref_ds.Rows, ref_ds.Columns
-            
-            if view_plane == "Axial (Z)":
-                slice_index = st.slider("🛞 Axial Slice Navigator (Z-Axis)", 1, z_dim, z_dim//2)
-                ds = datasets_list[slice_index - 1]
-                pixel_array = ds.pixel_array.astype(np.float32)
-                
-                if modality == "CT":
-                    slope = float(getattr(ds, "RescaleSlope", 1.0))
-                    intercept = float(getattr(ds, "RescaleIntercept", 0.0))
-                    img_data = pixel_array * slope + intercept
-                else:
-                    img_data = pixel_array
-                    
-                aspect_ratio = 1.0
-
-            else:
-                with st.spinner("Reconstructing 3D Volume..."):
-                    vol_3d = np.stack([d.pixel_array.astype(np.float32) for d in datasets_list])
-                    if modality == "CT":
-                        slope = float(getattr(ref_ds, "RescaleSlope", 1.0))
-                        intercept = float(getattr(ref_ds, "RescaleIntercept", 0.0))
-                        vol_3d = vol_3d * slope + intercept
-
-                if view_plane == "Coronal (Y)":
-                    slice_index = st.slider("🛞 Coronal Slice Navigator (Y-Axis)", 1, y_dim, y_dim//2)
-                    img_data = vol_3d[:, slice_index - 1, :]
-                    img_data = np.flipud(img_data)
-                    try:
-                        z_thick = float(ref_ds.SliceThickness)
-                        x_space = float(ref_ds.PixelSpacing[0])
-                        aspect_ratio = z_thick / x_space
-                    except:
-                        aspect_ratio = 1.0
-                else:
-                    slice_index = st.slider("🛞 Sagittal Slice Navigator (X-Axis)", 1, x_dim, x_dim//2)
-                    img_data = vol_3d[:, :, slice_index - 1]
-                    img_data = np.flipud(img_data)
-                    try:
-                        z_thick = float(ref_ds.SliceThickness)
-                        y_space = float(ref_ds.PixelSpacing[1])
-                        aspect_ratio = z_thick / y_space
-                    except:
-                        aspect_ratio = 1.0
-                        
-                ds = datasets_list[total_slices // 2]
-        else:
-            ds = datasets_list[0]
-            slice_index = 1
-            pixel_array = ds.pixel_array.astype(np.float32)
-            if modality == "CT":
-                slope = float(getattr(ds, "RescaleSlope", 1.0))
-                intercept = float(getattr(ds, "RescaleIntercept", 0.0))
-                img_data = pixel_array * slope + intercept
-            else:
-                img_data = pixel_array
-
-        unit_label = "HU" if modality == "CT" else "Intensity"
-        
         if modality == "CT":
             st.success(f"📌 Detected Modality: **CT (Computed Tomography)** — Hounsfield Units active.")
         elif modality == "MG":
@@ -376,26 +308,108 @@ with tab2:
         col_left_viewer, col_right_controls = st.columns([1.1, 0.9], gap="large")
         
         with col_left_viewer:
-            st.subheader(f"🖼️ Diagnostic Viewer ({view_plane.split()[0]} - Slice {slice_index})")
             
-            min_val, max_val = float(img_data.min()), float(img_data.max())
+            # --- Placeholders for Layout Order ---
+            header_ph = st.empty()
+            quick_adj_ph = st.empty()
+            plot_ph = st.empty()
+            mag_ph = st.empty()
             
-            # --- Quick Adjustments Panel ---
-            st.markdown("##### Quick Adjustments & Filters")
-            q_col1, q_col2 = st.columns(2)
-            with q_col1:
-                brightness_offset = st.slider("Brightness", -300.0, 300.0, 0.0, step=10.0, key=f"bright_{view_plane}_{slice_index}")
-                gamma_val = st.slider("Gamma", 0.2, 3.0, 1.0, step=0.1, key=f"gamma_{view_plane}_{slice_index}")
-            with q_col2:
-                contrast_factor = st.slider("Contrast", 0.2, 3.0, 1.0, step=0.1, key=f"contrast_{view_plane}_{slice_index}")
-                sharpness_val = st.slider("Sharpness", 0.0, 3.0, 1.0, step=0.1, key=f"sharp_{view_plane}_{slice_index}")
+            # --- Navigation Container (Appears BELOW the image visually) ---
+            nav_container = st.container()
+            with nav_container:
+                st.markdown("---")
+                if total_slices > 1:
+                    view_plane = st.radio("📐 **MPR View Plane Selection:**", ["Axial (Z)", "Coronal (Y)", "Sagittal (X)"], horizontal=True)
+                    z_dim = total_slices
+                    y_dim, x_dim = ref_ds.Rows, ref_ds.Columns
+                    
+                    if view_plane == "Axial (Z)":
+                        max_slider = z_dim
+                        slice_index = st.slider("🛞 Axial Slice Navigator (Z-Axis)", 1, max_slider, max_slider//2)
+                        ds = datasets_list[slice_index - 1]
+                        pixel_array = ds.pixel_array.astype(np.float32)
+                        if modality == "CT":
+                            slope = float(getattr(ds, "RescaleSlope", 1.0))
+                            intercept = float(getattr(ds, "RescaleIntercept", 0.0))
+                            img_data = pixel_array * slope + intercept
+                        else:
+                            img_data = pixel_array
+                        aspect_ratio = 1.0
+
+                    elif view_plane == "Coronal (Y)":
+                        max_slider = y_dim
+                        slice_index = st.slider("🛞 Coronal Slice Navigator (Y-Axis)", 1, max_slider, max_slider//2)
+                        with st.spinner("Reconstructing Coronal Plane..."):
+                            vol_3d = np.stack([d.pixel_array.astype(np.float32) for d in datasets_list])
+                            if modality == "CT":
+                                slope = float(getattr(ref_ds, "RescaleSlope", 1.0))
+                                intercept = float(getattr(ref_ds, "RescaleIntercept", 0.0))
+                                vol_3d = vol_3d * slope + intercept
+                            img_data = vol_3d[:, slice_index - 1, :]
+                            img_data = np.flipud(img_data)
+                            try:
+                                z_thick = float(ref_ds.SliceThickness)
+                                x_space = float(ref_ds.PixelSpacing[0])
+                                aspect_ratio = z_thick / x_space
+                            except:
+                                aspect_ratio = 1.0
+                        ds = datasets_list[total_slices // 2]
+
+                    elif view_plane == "Sagittal (X)":
+                        max_slider = x_dim
+                        slice_index = st.slider("🛞 Sagittal Slice Navigator (X-Axis)", 1, max_slider, max_slider//2)
+                        with st.spinner("Reconstructing Sagittal Plane..."):
+                            vol_3d = np.stack([d.pixel_array.astype(np.float32) for d in datasets_list])
+                            if modality == "CT":
+                                slope = float(getattr(ref_ds, "RescaleSlope", 1.0))
+                                intercept = float(getattr(ref_ds, "RescaleIntercept", 0.0))
+                                vol_3d = vol_3d * slope + intercept
+                            img_data = vol_3d[:, :, slice_index - 1]
+                            img_data = np.flipud(img_data)
+                            try:
+                                z_thick = float(ref_ds.SliceThickness)
+                                y_space = float(ref_ds.PixelSpacing[1])
+                                aspect_ratio = z_thick / y_space
+                            except:
+                                aspect_ratio = 1.0
+                        ds = datasets_list[total_slices // 2]
+                else:
+                    view_plane = "Axial (Z)"
+                    max_slider = 1
+                    slice_index = 1
+                    ds = datasets_list[0]
+                    pixel_array = ds.pixel_array.astype(np.float32)
+                    if modality == "CT":
+                        slope = float(getattr(ds, "RescaleSlope", 1.0))
+                        intercept = float(getattr(ds, "RescaleIntercept", 0.0))
+                        img_data = pixel_array * slope + intercept
+                    else:
+                        img_data = pixel_array
+                    aspect_ratio = 1.0
             
-            selected_filter = st.selectbox(
-                "Advanced Spatial Filter", 
-                ["None", "Smoothing / Blur", "Unsharp Mask (Pro Edge)", "Median Filter (Noise Reduction)", "Histogram Equalization"],
-                key=f"filt_{view_plane}_{slice_index}"
-            )
+            unit_label = "HU" if modality == "CT" else "Intensity"
             
+            # --- Render Top Elements via Placeholders ---
+            header_ph.subheader(f"🖼️ Diagnostic Viewer ({view_plane.split()[0]} - Slice {slice_index})")
+            
+            with quick_adj_ph.container():
+                st.markdown("##### Quick Adjustments & Filters")
+                q_col1, q_col2 = st.columns(2)
+                with q_col1:
+                    brightness_offset = st.slider("Brightness", -300.0, 300.0, 0.0, step=10.0, key=f"bright_{view_plane}_{slice_index}")
+                    gamma_val = st.slider("Gamma", 0.2, 3.0, 1.0, step=0.1, key=f"gamma_{view_plane}_{slice_index}")
+                with q_col2:
+                    contrast_factor = st.slider("Contrast", 0.2, 3.0, 1.0, step=0.1, key=f"contrast_{view_plane}_{slice_index}")
+                    sharpness_val = st.slider("Sharpness", 0.0, 3.0, 1.0, step=0.1, key=f"sharp_{view_plane}_{slice_index}")
+                
+                selected_filter = st.selectbox(
+                    "Advanced Spatial Filter", 
+                    ["None", "Smoothing / Blur", "Unsharp Mask (Pro Edge)", "Median Filter (Noise Reduction)", "Histogram Equalization"],
+                    key=f"filt_{view_plane}_{slice_index}"
+                )
+            
+            # --- Apply Filters ---
             img_adjusted = img_data + brightness_offset
             mean_val = np.mean(img_adjusted)
             img_adjusted = (img_adjusted - mean_val) * contrast_factor + mean_val
@@ -496,7 +510,7 @@ with tab2:
                 ry2 = st.session_state.get("ruler_y2", img_h // 2)
                 ax.plot([rx1, rx2], [ry1, ry2], color='yellow', linewidth=1.0, marker='o', markersize=3)
 
-            # --- 3. Pixel Probe (Live Crosshair Drawing) ---
+            # --- 3. Pixel Probe Drawing ---
             enable_probe = st.session_state.get("enable_probe", False)
             if enable_probe:
                 pr_x = int(st.session_state.get("probe_x", img_w // 2))
@@ -505,7 +519,7 @@ with tab2:
                 ax.plot([pr_x - arm, pr_x + arm], [pr_y, pr_y], color='darkorange', linewidth=1.2)
                 ax.plot([pr_x, pr_x], [pr_y - arm, pr_y + arm], color='darkorange', linewidth=1.2)
 
-            # --- 4. Goniometer / Angle Tool Drawing ---
+            # --- 4. Goniometer Drawing ---
             enable_angle = st.session_state.get("enable_angle", False)
             if enable_angle:
                 vx = st.session_state.get("ang_vx", img_w // 2)
@@ -520,7 +534,7 @@ with tab2:
                 ax.plot([ax_pt], [ay_pt], marker='o', color='yellow', markersize=3)
                 ax.plot([bx_pt], [by_pt], marker='o', color='yellow', markersize=3)
 
-            # --- 5. Magnifier / Loupe Bounding Box Drawing ---
+            # --- 5. Magnifier Bounding Box Drawing ---
             enable_mag = st.session_state.get("enable_mag", False)
             if enable_mag:
                 mag_cx = int(st.session_state.get("mag_x", img_w // 2))
@@ -551,33 +565,36 @@ with tab2:
                     bp_y, bp_x = zip(*bp_coords)
                     ax.scatter(bp_x, bp_y, color='red', s=4, marker='x', label='Defective Pixels')
 
-            st.pyplot(fig)
+            # Render Plot into Placeholder
+            plot_ph.pyplot(fig)
             
-            # --- Magnifier Inset Sub-Plot Window ---
+            # --- Render Magnifier Inset ---
             if enable_mag:
-                mag_factor = st.session_state.get("mag_factor", 2)
-                mag_crop = img_data[my1:my2, mx1:mx2]
-                if mag_crop.size > 0:
-                    st.markdown(f"🔍 **Magnifier / Loupe Inset View ({mag_factor}x Zoom):**")
-                    fig_mag, ax_mag = plt.subplots(figsize=(3.5, 3.5))
-                    ax_mag.imshow(mag_crop, cmap=colormap_choice, aspect=aspect_ratio)
-                    ax_mag.axis('off')
-                    st.pyplot(fig_mag)
+                with mag_ph.container():
+                    mag_factor = st.session_state.get("mag_factor", 2)
+                    mag_crop = img_data[my1:my2, mx1:mx2]
+                    if mag_crop.size > 0:
+                        st.markdown(f"🔍 **Magnifier / Loupe Inset View ({mag_factor}x Zoom):**")
+                        fig_mag, ax_mag = plt.subplots(figsize=(3.5, 3.5))
+                        ax_mag.imshow(mag_crop, cmap=colormap_choice, aspect=aspect_ratio)
+                        ax_mag.axis('off')
+                        st.pyplot(fig_mag)
 
-            img_buf = io.BytesIO()
-            fig.savefig(img_buf, format="png", bbox_inches='tight', dpi=150)
-            img_buf.seek(0)
-            st.download_button("📥 Download Active Slice PNG", img_buf, file_name=f"plane_{view_plane.split()[0]}_slice_{slice_index}.png", mime="image/png")
+            # --- Download Button (Added AT THE BOTTOM of the Slider) ---
+            with nav_container:
+                st.markdown("<br>", unsafe_allow_html=True)
+                img_buf = io.BytesIO()
+                fig.savefig(img_buf, format="png", bbox_inches='tight', dpi=150)
+                img_buf.seek(0)
+                st.download_button("📥 Download Active Slice PNG", img_buf, file_name=f"plane_{view_plane.split()[0]}_slice_{slice_index}.png", mime="image/png")
 
         with col_right_controls:
             st.subheader("⚙️ Toolbox & QC Tools")
             
-            # --- 1. Visual Enhancements ---
             with st.expander("🎨 Visual Enhancements & Colormaps", expanded=False):
                 st.selectbox("Color Palette", ["bone", "gray", "jet", "hot", "viridis"], key="colormap_choice")
                 st.checkbox("Invert Black/White (Invert Image)", key="invert_choice")
 
-            # --- 2. Multi-ROI Analysis ---
             with st.expander("🎯 Multi-ROI Analysis", expanded=True):
                 st.markdown("Select ROIs to display & analyze on active slice:")
                 c_chk1, c_chk2, c_chk3, c_chk4, c_chk5 = st.columns(5)
@@ -605,7 +622,6 @@ with tab2:
                             st.slider(f"Radius ({r_name})", min_value=5, max_value=50, value=20, key=f"rad_{r_name}")
                         st.divider()
 
-            # --- 3. Distance Ruler, Calibration & Pixel Probe ---
             with st.expander("📏 Distance Ruler, Calibration & Pixel Probe", expanded=False):
                 auto_sp = 1.0
                 if hasattr(ds, "PixelSpacing") and ds.PixelSpacing:
@@ -645,7 +661,6 @@ with tab2:
                     val_probe = img_data[pr_y_in, pr_x_in]
                     st.success(f"📍 **Position:** `(X: {pr_x_in}, Y: {pr_y_in})` | **Value:** `{val_probe:.2f} {unit_label}`")
 
-            # --- 4. Angle & Goniometer Tool ---
             with st.expander("📐 Angle & Goniometer Tool", expanded=False):
                 st.markdown("Measure anatomical or geometric angles ($\theta^\circ$) using 3 points:")
                 st.checkbox("📐 Enable Goniometer", key="enable_angle")
@@ -680,7 +695,6 @@ with tab2:
                     else:
                         st.warning("Ensure Arm points are not overlapping with the Vertex.")
 
-            # --- 5. Interactive Magnifier / Zoom Loupe ---
             with st.expander("🔍 Magnifier / Zoom Loupe", expanded=False):
                 st.markdown("Locally zoom in on microcalcifications or sharp edges:")
                 st.checkbox("🔍 Enable Magnifier", key="enable_mag")
@@ -693,7 +707,6 @@ with tab2:
                         st.slider("Magnifier Center Y", 0, img_h, img_h // 2, key="mag_y")
                         st.slider("Inspection Box Size (px)", 20, 120, 60, step=10, key="mag_box_sz")
 
-            # --- 6. Line Intensity Profile ---
             with st.expander("📈 Line Intensity Profile (ESF / MTF)", expanded=False):
                 st.markdown("Define a line profile across an edge for spatial resolution analysis:")
                 st.checkbox("📏 Enable Line Intensity Profile", key="enable_line_profile")
@@ -706,7 +719,6 @@ with tab2:
                         st.number_input("X2 (#2)", 0, img_w, 3 * img_w // 4, key="lp_x2")
                         st.number_input("Y2 (#2)", 0, img_h, img_h // 2, key="lp_y2")
 
-            # --- 7. SNR & CNR Metrics ---
             with st.expander("🔬 Advanced SNR & CNR Metrics", expanded=False):
                 if roi_summary_data:
                     st.markdown("**SNR per Active ROI:**")
@@ -737,7 +749,6 @@ with tab2:
                 else:
                     st.warning("Enable and configure ROIs in 'Multi-ROI Analysis' to calculate metrics.")
 
-            # --- 8A. DYNAMIC MODALITY QC: CT UNIFORMITY & WATER QC ---
             if modality == "CT":
                 with st.expander("🎯 CT Uniformity & Water Calibration QC", expanded=False):
                     if roi_summary_data:
@@ -791,7 +802,6 @@ with tab2:
                     else:
                         st.warning("Enable ROIs in Multi-ROI Analysis first.")
 
-            # --- 8B. DYNAMIC MODALITY QC: FLAT-FIELD DETECTOR (DX / CR / MG) ---
             if modality in ["DX", "CR", "MG"]:
                 with st.expander("🎯 Flat-Field Uniformity & Bad Pixel Detector", expanded=False):
                     st.markdown("Perform detector-wide uniformity checks & dead/hot pixel screening:")
@@ -830,7 +840,6 @@ with tab2:
                         else:
                             st.warning("⚠️ **Flat-Field QC: CHECK** (Inspect detector panel)")
 
-            # --- 8C. DYNAMIC MODALITY QC: MAMMOGRAPHY FOM CALCULATOR (MG ONLY) ---
             if modality == "MG":
                 with st.expander("🌸 Mammography QC & FOM Calculator", expanded=False):
                     st.markdown("Calculate the **Figure of Merit** ($\text{FOM} = \text{CNR}^2 / \text{MGD}$) for protocol optimization:")
@@ -864,7 +873,6 @@ with tab2:
                     else:
                         st.warning("Enable at least 2 ROIs (e.g. Center as target and Top as background) in Multi-ROI Analysis.")
 
-            # --- 9. Header Editor ---
             with st.expander("✏️ DICOM Header Editor & Fixer", expanded=False):
                 st.markdown("Modify core metadata tags and download the updated DICOM slice:")
                 new_pname = st.text_input("Patient Name", value=str(getattr(ds, "PatientName", "")))
@@ -895,7 +903,6 @@ with tab2:
                 } for d in roi_summary_data])
                 st.table(df_display)
 
-        # --- Full-Width Line Profile (ESF & MTF) ---
         if st.session_state.get("enable_line_profile", False):
             st.markdown("---")
             st.subheader(f"📈 Spatial Resolution Analysis: ESF & MTF (Slice {slice_index})")
@@ -996,6 +1003,7 @@ with tab2:
             if tag_search:
                 df_tags = df_tags[df_tags.apply(lambda row: row.astype(str).str.contains(tag_search, case=False).any(), axis=1)]
             st.dataframe(df_tags, use_container_width=True)
+
 # ==================== TAB 3: BATCH CSV REPORT GENERATOR (DRL-ALIGNED) ====================
 with tab3:
     st.header("📊 Batch DRLs & Dataset CSV Report Generator")
@@ -1029,7 +1037,6 @@ with tab3:
                     all_filenames = [f for f in zip_in.namelist() if f.endswith(('.dcm', '.DCM')) or '.' not in f.split('/')[-1]]
                     
                     if "Radiography" in modality_category:
-                        # --- 1. RADIOGRAPHY (DX / CR / DEXA) MODE ---
                         for filename in all_filenames:
                             file_content = zip_in.read(filename)
                             try:
@@ -1044,7 +1051,6 @@ with tab3:
                                 dap_val = getattr(ds, "ImageAndFluoroscopyAreaDoseProduct", "N/A")
                                 entrance_dose = getattr(ds, "EntranceDoseInmGy", getattr(ds, "OrganDose", "N/A"))
 
-                                # Physical Field Size at Detector Plane
                                 fov_dim = getattr(ds, "FieldOfViewDimensions", None)
                                 if fov_dim is not None:
                                     if isinstance(fov_dim, (list, tuple, pydicom.multival.MultiValue)) and len(fov_dim) >= 2:
@@ -1088,7 +1094,6 @@ with tab3:
                                 continue
 
                     elif "Mammography" in modality_category:
-                        # --- 2. MAMMOGRAPHY (MG) MODE ---
                         for filename in all_filenames:
                             file_content = zip_in.read(filename)
                             try:
@@ -1123,7 +1128,6 @@ with tab3:
                                 continue
 
                     elif "Computed Tomography" in modality_category:
-                        # --- 3. COMPUTED TOMOGRAPHY (CT VOLUMES) MODE ---
                         ct_groups = {}
                         for filename in all_filenames:
                             file_content = zip_in.read(filename)
