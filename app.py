@@ -248,7 +248,7 @@ with tab1:
 # ==================== TAB 2: INSPECTOR & 3D VOLUMETRIC VIEWER ====================
 with tab2:
     st.header("🔍 DICOM Inspector & 3D Volumetric Viewer")
-    st.markdown("Upload a **single DICOM file** (`.dcm`) OR a **ZIP archive** containing a 3D CT series to navigate through slices.")
+    st.markdown("Upload a **single DICOM file** (`.dcm`) OR a **ZIP archive** containing a 3D CT series to navigate slices and reconstruct planes.")
 
     uploaded_input = st.file_uploader("Upload DICOM File or ZIP Archive", type=["dcm", "IMA", "zip"], key="inspect_input")
 
@@ -288,21 +288,79 @@ with tab2:
 
     if len(datasets_list) > 0:
         total_slices = len(datasets_list)
+        ref_ds = datasets_list[0]
+        modality = getattr(ref_ds, "Modality", "UNKNOWN")
+        study_desc = str(getattr(ref_ds, "StudyDescription", "")).upper()
+        station_name = str(getattr(ref_ds, "StationName", "")).upper()
+        is_portable = "PORTABLE" in study_desc or "MOBILE" in study_desc or "PORTABLE" in station_name or "MOBILE" in station_name
+        
+        view_plane = "Axial (Z)"
+        aspect_ratio = 1.0
+
         if total_slices > 1:
-            st.info(f"📌 **3D Volume Detected:** `{total_slices} slices` found in dataset.")
-            slice_index = st.slider("🛞 3D Slice Navigator (Z-Axis)", min_value=1, max_value=total_slices, value=total_slices//2 if total_slices > 1 else 1, step=1)
-            ds = datasets_list[slice_index - 1]
-            st.caption(f"Active Slice: **{slice_index} / {total_slices}**")
+            st.info(f"📌 **3D Volume Detected:** `{total_slices} slices` found. Use MPR to navigate anatomical planes.")
+            
+            view_plane = st.radio("📐 **MPR View Plane Selection:**", ["Axial (Z)", "Coronal (Y)", "Sagittal (X)"], horizontal=True)
+            
+            z_dim = total_slices
+            y_dim, x_dim = ref_ds.Rows, ref_ds.Columns
+            
+            if view_plane == "Axial (Z)":
+                slice_index = st.slider("🛞 Axial Slice Navigator (Z-Axis)", 1, z_dim, z_dim//2)
+                ds = datasets_list[slice_index - 1]
+                pixel_array = ds.pixel_array.astype(np.float32)
+                
+                if modality == "CT":
+                    slope = float(getattr(ds, "RescaleSlope", 1.0))
+                    intercept = float(getattr(ds, "RescaleIntercept", 0.0))
+                    img_data = pixel_array * slope + intercept
+                else:
+                    img_data = pixel_array
+                    
+                aspect_ratio = 1.0
+
+            else:
+                with st.spinner("Reconstructing 3D Volume..."):
+                    vol_3d = np.stack([d.pixel_array.astype(np.float32) for d in datasets_list])
+                    if modality == "CT":
+                        slope = float(getattr(ref_ds, "RescaleSlope", 1.0))
+                        intercept = float(getattr(ref_ds, "RescaleIntercept", 0.0))
+                        vol_3d = vol_3d * slope + intercept
+
+                if view_plane == "Coronal (Y)":
+                    slice_index = st.slider("🛞 Coronal Slice Navigator (Y-Axis)", 1, y_dim, y_dim//2)
+                    img_data = vol_3d[:, slice_index - 1, :]
+                    img_data = np.flipud(img_data)
+                    try:
+                        z_thick = float(ref_ds.SliceThickness)
+                        x_space = float(ref_ds.PixelSpacing[0])
+                        aspect_ratio = z_thick / x_space
+                    except:
+                        aspect_ratio = 1.0
+                else:
+                    slice_index = st.slider("🛞 Sagittal Slice Navigator (X-Axis)", 1, x_dim, x_dim//2)
+                    img_data = vol_3d[:, :, slice_index - 1]
+                    img_data = np.flipud(img_data)
+                    try:
+                        z_thick = float(ref_ds.SliceThickness)
+                        y_space = float(ref_ds.PixelSpacing[1])
+                        aspect_ratio = z_thick / y_space
+                    except:
+                        aspect_ratio = 1.0
+                        
+                ds = datasets_list[total_slices // 2]
         else:
             ds = datasets_list[0]
             slice_index = 1
-            total_slices = 1
+            pixel_array = ds.pixel_array.astype(np.float32)
+            if modality == "CT":
+                slope = float(getattr(ds, "RescaleSlope", 1.0))
+                intercept = float(getattr(ds, "RescaleIntercept", 0.0))
+                img_data = pixel_array * slope + intercept
+            else:
+                img_data = pixel_array
 
-        modality = getattr(ds, "Modality", "UNKNOWN")
-        study_desc = str(getattr(ds, "StudyDescription", "")).upper()
-        series_desc = str(getattr(ds, "SeriesDescription", "")).upper()
-        station_name = str(getattr(ds, "StationName", "")).upper()
-        is_portable = "PORTABLE" in study_desc or "MOBILE" in study_desc or "PORTABLE" in station_name or "MOBILE" in station_name
+        unit_label = "HU" if modality == "CT" else "Intensity"
         
         if modality == "CT":
             st.success(f"📌 Detected Modality: **CT (Computed Tomography)** — Hounsfield Units active.")
@@ -318,208 +376,198 @@ with tab2:
         col_left_viewer, col_right_controls = st.columns([1.1, 0.9], gap="large")
         
         with col_left_viewer:
-            st.subheader(f"🖼️ Diagnostic Viewer (Slice {slice_index}/{total_slices})")
-            if hasattr(ds, "pixel_array"):
-                pixel_array = ds.pixel_array.astype(np.float32)
-                if modality == "CT":
-                    slope = float(getattr(ds, "RescaleSlope", 1.0))
-                    intercept = float(getattr(ds, "RescaleIntercept", 0.0))
-                    img_data = pixel_array * slope + intercept
-                    unit_label = "HU"
+            st.subheader(f"🖼️ Diagnostic Viewer ({view_plane.split()[0]} - Slice {slice_index})")
+            
+            min_val, max_val = float(img_data.min()), float(img_data.max())
+            
+            # --- Quick Adjustments Panel ---
+            st.markdown("##### Quick Adjustments & Filters")
+            q_col1, q_col2 = st.columns(2)
+            with q_col1:
+                brightness_offset = st.slider("Brightness", -300.0, 300.0, 0.0, step=10.0, key=f"bright_{view_plane}_{slice_index}")
+                gamma_val = st.slider("Gamma", 0.2, 3.0, 1.0, step=0.1, key=f"gamma_{view_plane}_{slice_index}")
+            with q_col2:
+                contrast_factor = st.slider("Contrast", 0.2, 3.0, 1.0, step=0.1, key=f"contrast_{view_plane}_{slice_index}")
+                sharpness_val = st.slider("Sharpness", 0.0, 3.0, 1.0, step=0.1, key=f"sharp_{view_plane}_{slice_index}")
+            
+            selected_filter = st.selectbox(
+                "Advanced Spatial Filter", 
+                ["None", "Smoothing / Blur", "Unsharp Mask (Pro Edge)", "Median Filter (Noise Reduction)", "Histogram Equalization"],
+                key=f"filt_{view_plane}_{slice_index}"
+            )
+            
+            img_adjusted = img_data + brightness_offset
+            mean_val = np.mean(img_adjusted)
+            img_adjusted = (img_adjusted - mean_val) * contrast_factor + mean_val
+            
+            min_v, max_v = img_adjusted.min(), img_adjusted.max()
+            if max_v > min_v:
+                norm_g = np.clip((img_adjusted - min_v) / (max_v - min_v), 0, 1)
+                img_adjusted = min_v + (norm_g ** gamma_val) * (max_v - min_v)
+            
+            norm_p = np.clip((img_adjusted - min_v) / (max_v - min_v + 1e-5) * 255, 0, 255).astype(np.uint8)
+            pil_img = Image.fromarray(norm_p)
+            
+            if sharpness_val != 1.0:
+                enhancer = ImageEnhance.Sharpness(pil_img)
+                pil_img = enhancer.enhance(sharpness_val)
+                
+            if selected_filter == "Smoothing / Blur":
+                pil_img = pil_img.filter(ImageFilter.BLUR)
+            elif selected_filter == "Unsharp Mask (Pro Edge)":
+                pil_img = pil_img.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
+            elif selected_filter == "Median Filter (Noise Reduction)":
+                pil_img = pil_img.filter(ImageFilter.MedianFilter(size=3))
+            elif selected_filter == "Histogram Equalization":
+                pil_img = ImageOps.equalize(pil_img)
+                
+            back = np.array(pil_img).astype(np.float32)
+            img_adjusted = min_v + (back / 255.0) * (max_v - min_v)
+
+            colormap_choice = st.session_state.get("colormap_choice", "bone")
+            invert_choice = st.session_state.get("invert_choice", False)
+            
+            plot_data = img_adjusted
+            if invert_choice:
+                plot_data = max_v - (img_adjusted - min_v)
+
+            fig, ax = plt.subplots(figsize=(5, 5))
+            ax.imshow(plot_data, cmap=colormap_choice, aspect=aspect_ratio)
+            ax.axis('off')
+            
+            img_h, img_w = img_data.shape
+            cx_default, cy_default = img_w // 2, img_h // 2
+            
+            # --- 1. Multi-ROI Drawing ---
+            roi_summary_data = []
+            roi_configs_all = [
+                {"name": "Center", "default_dx": 0, "default_dy": 0, "color": "red"},
+                {"name": "Top", "default_dx": 0, "default_dy": -int(img_h * 0.25), "color": "blue"},
+                {"name": "Bottom", "default_dx": 0, "default_dy": int(img_h * 0.25), "color": "green"},
+                {"name": "Left", "default_dx": -int(img_w * 0.25), "default_dy": 0, "color": "orange"},
+                {"name": "Right", "default_dx": int(img_w * 0.25), "default_dy": 0, "color": "purple"}
+            ]
+            
+            for rc in roi_configs_all:
+                r_name = rc["name"]
+                if not st.session_state.get(f"chk_{r_name}", False):
+                    continue
+                    
+                pos_x = st.session_state.get(f"x_{r_name}", cx_default + rc["default_dx"])
+                pos_y = st.session_state.get(f"y_{r_name}", cy_default + rc["default_dy"])
+                r_shape = st.session_state.get(f"shape_{r_name}", "Circle")
+                
+                if r_shape == "Square":
+                    r_size = st.session_state.get(f"size_{r_name}", 30)
+                    x1, x2 = max(0, pos_x - r_size//2), min(img_w, pos_x + r_size//2)
+                    y1, y2 = max(0, pos_y - r_size//2), min(img_h, pos_y + r_size//2)
+                    roi_pixels = img_data[y1:y2, x1:x2]
+                    
+                    rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=1.0, edgecolor=rc["color"], facecolor='none')
+                    ax.add_patch(rect)
+                    ax.text(x1, y1 - 4, r_name, color=rc["color"], fontsize=8, weight='bold')
                 else:
-                    img_data = pixel_array
-                    unit_label = "Intensity"
-                
-                min_val, max_val = float(img_data.min()), float(img_data.max())
-                
-                # --- Quick Adjustments Panel ---
-                st.markdown("##### Quick Adjustments & Filters")
-                q_col1, q_col2 = st.columns(2)
-                with q_col1:
-                    brightness_offset = st.slider("Brightness", -300.0, 300.0, 0.0, step=10.0, key=f"bright_{slice_index}")
-                    gamma_val = st.slider("Gamma", 0.2, 3.0, 1.0, step=0.1, key=f"gamma_{slice_index}")
-                with q_col2:
-                    contrast_factor = st.slider("Contrast", 0.2, 3.0, 1.0, step=0.1, key=f"contrast_{slice_index}")
-                    sharpness_val = st.slider("Sharpness", 0.0, 3.0, 1.0, step=0.1, key=f"sharp_{slice_index}")
-                
-                selected_filter = st.selectbox(
-                    "Advanced Spatial Filter", 
-                    ["None", "Smoothing / Blur", "Unsharp Mask (Pro Edge)", "Median Filter (Noise Reduction)", "Histogram Equalization"],
-                    key=f"filt_{slice_index}"
-                )
-                
-                img_adjusted = img_data + brightness_offset
-                mean_val = np.mean(img_adjusted)
-                img_adjusted = (img_adjusted - mean_val) * contrast_factor + mean_val
-                
-                min_v, max_v = img_adjusted.min(), img_adjusted.max()
-                if max_v > min_v:
-                    norm_g = np.clip((img_adjusted - min_v) / (max_v - min_v), 0, 1)
-                    img_adjusted = min_v + (norm_g ** gamma_val) * (max_v - min_v)
-                
-                norm_p = np.clip((img_adjusted - min_v) / (max_v - min_v + 1e-5) * 255, 0, 255).astype(np.uint8)
-                pil_img = Image.fromarray(norm_p)
-                
-                if sharpness_val != 1.0:
-                    enhancer = ImageEnhance.Sharpness(pil_img)
-                    pil_img = enhancer.enhance(sharpness_val)
+                    r_radius = st.session_state.get(f"rad_{r_name}", 20)
+                    y_grid, x_grid = np.ogrid[:img_h, :img_w]
+                    mask = (x_grid - pos_x)**2 + (y_grid - pos_y)**2 <= r_radius**2
+                    roi_pixels = img_data[mask]
                     
-                if selected_filter == "Smoothing / Blur":
-                    pil_img = pil_img.filter(ImageFilter.BLUR)
-                elif selected_filter == "Unsharp Mask (Pro Edge)":
-                    pil_img = pil_img.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
-                elif selected_filter == "Median Filter (Noise Reduction)":
-                    pil_img = pil_img.filter(ImageFilter.MedianFilter(size=3))
-                elif selected_filter == "Histogram Equalization":
-                    pil_img = ImageOps.equalize(pil_img)
-                    
-                back = np.array(pil_img).astype(np.float32)
-                img_adjusted = min_v + (back / 255.0) * (max_v - min_v)
-
-                colormap_choice = st.session_state.get("colormap_choice", "bone")
-                invert_choice = st.session_state.get("invert_choice", False)
+                    circle = patches.Circle((pos_x, pos_y), r_radius, linewidth=1.0, edgecolor=rc["color"], facecolor='none')
+                    ax.add_patch(circle)
+                    ax.text(pos_x - r_radius, pos_y - r_radius - 4, r_name, color=rc["color"], fontsize=8, weight='bold')
                 
-                plot_data = img_adjusted
-                if invert_choice:
-                    plot_data = max_v - (img_adjusted - min_v)
+                if roi_pixels.size > 0:
+                    roi_summary_data.append({
+                        "ROI Name": r_name,
+                        "Shape": r_shape,
+                        "Mean": np.mean(roi_pixels),
+                        "StdDev": np.std(roi_pixels),
+                        "Min": np.min(roi_pixels),
+                        "Max": np.max(roi_pixels)
+                    })
 
-                fig, ax = plt.subplots(figsize=(5, 5))
-                ax.imshow(plot_data, cmap=colormap_choice)
-                ax.axis('off')
+            # --- 2. Distance Ruler Drawing ---
+            enable_ruler = st.session_state.get("enable_ruler", False)
+            pixel_spacing_val = st.session_state.get("calib_spacing", 1.0)
+            if enable_ruler:
+                rx1 = st.session_state.get("ruler_x1", img_w // 4)
+                ry1 = st.session_state.get("ruler_y1", img_h // 2)
+                rx2 = st.session_state.get("ruler_x2", 3 * img_w // 4)
+                ry2 = st.session_state.get("ruler_y2", img_h // 2)
+                ax.plot([rx1, rx2], [ry1, ry2], color='yellow', linewidth=1.0, marker='o', markersize=3)
+
+            # --- 3. Pixel Probe (Live Crosshair Drawing) ---
+            enable_probe = st.session_state.get("enable_probe", False)
+            if enable_probe:
+                pr_x = int(st.session_state.get("probe_x", img_w // 2))
+                pr_y = int(st.session_state.get("probe_y", img_h // 2))
+                arm = 6
+                ax.plot([pr_x - arm, pr_x + arm], [pr_y, pr_y], color='darkorange', linewidth=1.2)
+                ax.plot([pr_x, pr_x], [pr_y - arm, pr_y + arm], color='darkorange', linewidth=1.2)
+
+            # --- 4. Goniometer / Angle Tool Drawing ---
+            enable_angle = st.session_state.get("enable_angle", False)
+            if enable_angle:
+                vx = st.session_state.get("ang_vx", img_w // 2)
+                vy = st.session_state.get("ang_vy", img_h // 2)
+                ax_pt = st.session_state.get("ang_ax", img_w // 4)
+                ay_pt = st.session_state.get("ang_ay", img_h // 4)
+                bx_pt = st.session_state.get("ang_bx", 3 * img_w // 4)
+                by_pt = st.session_state.get("ang_by", img_h // 4)
                 
-                img_h, img_w = img_data.shape
-                cx_default, cy_default = img_w // 2, img_h // 2
+                ax.plot([ax_pt, vx, bx_pt], [ay_pt, vy, by_pt], color='lime', linewidth=1.0, linestyle='-')
+                ax.plot([vx], [vy], marker='o', color='red', markersize=4)
+                ax.plot([ax_pt], [ay_pt], marker='o', color='yellow', markersize=3)
+                ax.plot([bx_pt], [by_pt], marker='o', color='yellow', markersize=3)
+
+            # --- 5. Magnifier / Loupe Bounding Box Drawing ---
+            enable_mag = st.session_state.get("enable_mag", False)
+            if enable_mag:
+                mag_cx = int(st.session_state.get("mag_x", img_w // 2))
+                mag_cy = int(st.session_state.get("mag_y", img_h // 2))
+                mag_box_size = int(st.session_state.get("mag_box_sz", 60))
                 
-                # --- 1. Multi-ROI Drawing ---
-                roi_summary_data = []
-                roi_configs_all = [
-                    {"name": "Center", "default_dx": 0, "default_dy": 0, "color": "red"},
-                    {"name": "Top", "default_dx": 0, "default_dy": -int(img_h * 0.25), "color": "blue"},
-                    {"name": "Bottom", "default_dx": 0, "default_dy": int(img_h * 0.25), "color": "green"},
-                    {"name": "Left", "default_dx": -int(img_w * 0.25), "default_dy": 0, "color": "orange"},
-                    {"name": "Right", "default_dx": int(img_w * 0.25), "default_dy": 0, "color": "purple"}
-                ]
+                mx1 = max(0, mag_cx - mag_box_size // 2)
+                mx2 = min(img_w, mag_cx + mag_box_size // 2)
+                my1 = max(0, mag_cy - mag_box_size // 2)
+                my2 = min(img_h, mag_cy + mag_box_size // 2)
                 
-                for rc in roi_configs_all:
-                    r_name = rc["name"]
-                    if not st.session_state.get(f"chk_{r_name}", False):
-                        continue
-                        
-                    pos_x = st.session_state.get(f"x_{r_name}", cx_default + rc["default_dx"])
-                    pos_y = st.session_state.get(f"y_{r_name}", cy_default + rc["default_dy"])
-                    r_shape = st.session_state.get(f"shape_{r_name}", "Circle")
-                    
-                    if r_shape == "Square":
-                        r_size = st.session_state.get(f"size_{r_name}", 30)
-                        x1, x2 = max(0, pos_x - r_size//2), min(img_w, pos_x + r_size//2)
-                        y1, y2 = max(0, pos_y - r_size//2), min(img_h, pos_y + r_size//2)
-                        roi_pixels = img_data[y1:y2, x1:x2]
-                        
-                        rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=1.0, edgecolor=rc["color"], facecolor='none')
-                        ax.add_patch(rect)
-                        ax.text(x1, y1 - 4, r_name, color=rc["color"], fontsize=8, weight='bold')
-                    else:
-                        r_radius = st.session_state.get(f"rad_{r_name}", 20)
-                        y_grid, x_grid = np.ogrid[:img_h, :img_w]
-                        mask = (x_grid - pos_x)**2 + (y_grid - pos_y)**2 <= r_radius**2
-                        roi_pixels = img_data[mask]
-                        
-                        circle = patches.Circle((pos_x, pos_y), r_radius, linewidth=1.0, edgecolor=rc["color"], facecolor='none')
-                        ax.add_patch(circle)
-                        ax.text(pos_x - r_radius, pos_y - r_radius - 4, r_name, color=rc["color"], fontsize=8, weight='bold')
-                    
-                    if roi_pixels.size > 0:
-                        roi_summary_data.append({
-                            "ROI Name": r_name,
-                            "Shape": r_shape,
-                            "Mean": np.mean(roi_pixels),
-                            "StdDev": np.std(roi_pixels),
-                            "Min": np.min(roi_pixels),
-                            "Max": np.max(roi_pixels)
-                        })
+                mag_rect = patches.Rectangle((mx1, my1), mx2 - mx1, my2 - my1, linewidth=1.2, edgecolor='magenta', linestyle='--', facecolor='none')
+                ax.add_patch(mag_rect)
 
-                # --- 2. Distance Ruler Drawing ---
-                enable_ruler = st.session_state.get("enable_ruler", False)
-                pixel_spacing_val = st.session_state.get("calib_spacing", 1.0)
-                if enable_ruler:
-                    rx1 = st.session_state.get("ruler_x1", img_w // 4)
-                    ry1 = st.session_state.get("ruler_y1", img_h // 2)
-                    rx2 = st.session_state.get("ruler_x2", 3 * img_w // 4)
-                    ry2 = st.session_state.get("ruler_y2", img_h // 2)
-                    ax.plot([rx1, rx2], [ry1, ry2], color='yellow', linewidth=1.0, marker='o', markersize=3)
+            # --- 6. Line Profile Overlay Drawing ---
+            enable_lp = st.session_state.get("enable_line_profile", False)
+            if enable_lp:
+                lx1 = st.session_state.get("lp_x1", img_w // 4)
+                ly1 = st.session_state.get("lp_y1", img_h // 2)
+                lx2 = st.session_state.get("lp_x2", 3 * img_w // 4)
+                ly2 = st.session_state.get("lp_y2", img_h // 2)
+                ax.plot([lx1, lx2], [ly1, ly2], color='cyan', linewidth=1.0, linestyle='--', marker='o', markersize=3)
 
-                # --- 3. Pixel Probe (Live Crosshair Drawing) ---
-                enable_probe = st.session_state.get("enable_probe", False)
-                if enable_probe:
-                    pr_x = int(st.session_state.get("probe_x", img_w // 2))
-                    pr_y = int(st.session_state.get("probe_y", img_h // 2))
-                    arm = 6
-                    ax.plot([pr_x - arm, pr_x + arm], [pr_y, pr_y], color='darkorange', linewidth=1.2)
-                    ax.plot([pr_x, pr_x], [pr_y - arm, pr_y + arm], color='darkorange', linewidth=1.2)
+            # --- 7. Flat-Field Bad Pixels Visualization ---
+            if st.session_state.get("show_bad_pixels", False) and "bad_pixel_coords" in st.session_state:
+                bp_coords = st.session_state["bad_pixel_coords"]
+                if len(bp_coords) > 0:
+                    bp_y, bp_x = zip(*bp_coords)
+                    ax.scatter(bp_x, bp_y, color='red', s=4, marker='x', label='Defective Pixels')
 
-                # --- 4. Goniometer / Angle Tool Drawing ---
-                enable_angle = st.session_state.get("enable_angle", False)
-                if enable_angle:
-                    vx = st.session_state.get("ang_vx", img_w // 2)
-                    vy = st.session_state.get("ang_vy", img_h // 2)
-                    ax_pt = st.session_state.get("ang_ax", img_w // 4)
-                    ay_pt = st.session_state.get("ang_ay", img_h // 4)
-                    bx_pt = st.session_state.get("ang_bx", 3 * img_w // 4)
-                    by_pt = st.session_state.get("ang_by", img_h // 4)
-                    
-                    ax.plot([ax_pt, vx, bx_pt], [ay_pt, vy, by_pt], color='lime', linewidth=1.0, linestyle='-')
-                    ax.plot([vx], [vy], marker='o', color='red', markersize=4)
-                    ax.plot([ax_pt], [ay_pt], marker='o', color='yellow', markersize=3)
-                    ax.plot([bx_pt], [by_pt], marker='o', color='yellow', markersize=3)
+            st.pyplot(fig)
+            
+            # --- Magnifier Inset Sub-Plot Window ---
+            if enable_mag:
+                mag_factor = st.session_state.get("mag_factor", 2)
+                mag_crop = img_data[my1:my2, mx1:mx2]
+                if mag_crop.size > 0:
+                    st.markdown(f"🔍 **Magnifier / Loupe Inset View ({mag_factor}x Zoom):**")
+                    fig_mag, ax_mag = plt.subplots(figsize=(3.5, 3.5))
+                    ax_mag.imshow(mag_crop, cmap=colormap_choice, aspect=aspect_ratio)
+                    ax_mag.axis('off')
+                    st.pyplot(fig_mag)
 
-                # --- 5. Magnifier / Loupe Bounding Box Drawing ---
-                enable_mag = st.session_state.get("enable_mag", False)
-                if enable_mag:
-                    mag_cx = int(st.session_state.get("mag_x", img_w // 2))
-                    mag_cy = int(st.session_state.get("mag_y", img_h // 2))
-                    mag_box_size = int(st.session_state.get("mag_box_sz", 60))
-                    
-                    mx1 = max(0, mag_cx - mag_box_size // 2)
-                    mx2 = min(img_w, mag_cx + mag_box_size // 2)
-                    my1 = max(0, mag_cy - mag_box_size // 2)
-                    my2 = min(img_h, mag_cy + mag_box_size // 2)
-                    
-                    mag_rect = patches.Rectangle((mx1, my1), mx2 - mx1, my2 - my1, linewidth=1.2, edgecolor='magenta', linestyle='--', facecolor='none')
-                    ax.add_patch(mag_rect)
-
-                # --- 6. Line Profile Overlay Drawing ---
-                enable_lp = st.session_state.get("enable_line_profile", False)
-                if enable_lp:
-                    lx1 = st.session_state.get("lp_x1", img_w // 4)
-                    ly1 = st.session_state.get("lp_y1", img_h // 2)
-                    lx2 = st.session_state.get("lp_x2", 3 * img_w // 4)
-                    ly2 = st.session_state.get("lp_y2", img_h // 2)
-                    ax.plot([lx1, lx2], [ly1, ly2], color='cyan', linewidth=1.0, linestyle='--', marker='o', markersize=3)
-
-                # --- 7. Flat-Field Bad Pixels Visualization ---
-                if st.session_state.get("show_bad_pixels", False) and "bad_pixel_coords" in st.session_state:
-                    bp_coords = st.session_state["bad_pixel_coords"]
-                    if len(bp_coords) > 0:
-                        bp_y, bp_x = zip(*bp_coords)
-                        ax.scatter(bp_x, bp_y, color='red', s=4, marker='x', label='Defective Pixels')
-
-                st.pyplot(fig)
-                
-                # --- Magnifier Inset Sub-Plot Window ---
-                if enable_mag:
-                    mag_factor = st.session_state.get("mag_factor", 2)
-                    mag_crop = img_data[my1:my2, mx1:mx2]
-                    if mag_crop.size > 0:
-                        st.markdown(f"🔍 **Magnifier / Loupe Inset View ({mag_factor}x Zoom):**")
-                        fig_mag, ax_mag = plt.subplots(figsize=(3.5, 3.5))
-                        ax_mag.imshow(mag_crop, cmap=colormap_choice)
-                        ax_mag.axis('off')
-                        st.pyplot(fig_mag)
-
-                img_buf = io.BytesIO()
-                fig.savefig(img_buf, format="png", bbox_inches='tight', dpi=150)
-                img_buf.seek(0)
-                st.download_button("📥 Download Active Slice PNG", img_buf, file_name=f"slice_{slice_index}_preview.png", mime="image/png")
+            img_buf = io.BytesIO()
+            fig.savefig(img_buf, format="png", bbox_inches='tight', dpi=150)
+            img_buf.seek(0)
+            st.download_button("📥 Download Active Slice PNG", img_buf, file_name=f"plane_{view_plane.split()[0]}_slice_{slice_index}.png", mime="image/png")
 
         with col_right_controls:
             st.subheader("⚙️ Toolbox & QC Tools")
@@ -569,7 +617,6 @@ with tab2:
                 st.number_input("Resolution (mm/pixel) - Manual Override", min_value=0.001, value=auto_sp, format="%.4f", key="calib_spacing")
                 st.markdown("---")
                 
-                # Distance Ruler Sub-Tool
                 st.checkbox("📏 Enable Distance Ruler", key="enable_ruler")
                 if st.session_state.get("enable_ruler", False):
                     col_r1, col_r2 = st.columns(2)
@@ -587,7 +634,6 @@ with tab2:
                     st.info(f"📐 **Ruler Length:** `{p_dist:.1f} px` | `{m_dist:.2f} mm`")
                 
                 st.markdown("---")
-                # Pixel / HU Probe Sub-Tool
                 st.checkbox("🎯 Enable Live Pixel / HU Probe", key="enable_probe")
                 if st.session_state.get("enable_probe", False):
                     c_pr1, c_pr2 = st.columns(2)
@@ -725,7 +771,7 @@ with tab2:
                                     with col_u2:
                                         if i + 1 < len(p_items):
                                             st.write(f"- **{p_items[i+1][0]}:** `{p_items[i+1][1]:.1f}%`")
-                                
+                            
                                 avg_unif = np.mean(unif_vals)
                                 avg_noise = np.mean([stds_dict[k] for k in stds_dict.keys()])
                                 
@@ -740,8 +786,6 @@ with tab2:
                                     st.success("✅ **QC Status: PASS** (>= 90%)")
                                 else:
                                     st.warning("⚠️ **QC Status: CHECK** (< 90%)")
-                            else:
-                                st.info("Enable peripheral ROIs (Top, Bottom, Left, Right) to calculate Uniformity.")
                         else:
                             st.warning("Enable the 'Center' ROI in Multi-ROI Analysis to perform Uniformity QC.")
                     else:
@@ -815,7 +859,6 @@ with tab2:
                             st.markdown("---")
                             st.info(f"📊 **Calculated CNR:** `{calc_cnr:.2f}`")
                             st.success(f"🏆 **Figure of Merit (FOM):** `{calc_fom:.3f} mGy⁻¹`")
-                            st.caption("Higher FOM indicates superior image contrast per unit glandular dose.")
                         else:
                             st.warning("Background Standard Deviation must be non-zero.")
                     else:
@@ -872,9 +915,9 @@ with tab2:
                 
                 fig_esf, ax_esf = plt.subplots(figsize=(10, 3.2))
                 ax_esf.plot(distances_mm, profile_values, color='crimson', linewidth=2)
-                ax_esf.set_title(f"Edge Spread Function (ESF) — Slice {slice_index} ({unit_label})", fontsize=11, weight='bold')
+                ax_esf.set_title(f"Edge Spread Function (ESF) — {view_plane.split()[0]} Plane", fontsize=11, weight='bold')
                 ax_esf.set_xlabel("Distance along edge (mm)", fontsize=10)
-                ax_esf.set_ylabel(f"Pixel Value / Unit ({unit_label})", fontsize=10)
+                ax_esf.set_ylabel(f"Pixel Value ({unit_label})", fontsize=10)
                 ax_esf.grid(True, linestyle='--', alpha=0.6)
                 st.pyplot(fig_esf)
                 
@@ -911,33 +954,34 @@ with tab2:
                         ax_mtf.grid(True, linestyle='--', alpha=0.6)
                         st.pyplot(fig_mtf)
                         
-                        st.markdown(f"📏 **Spatial Resolution Metrics:** `MTF₅₀ = {mtf_50_freq:.2f} cyc/mm` | `MTF₁₀ (Limiting) = {mtf_10_freq:.2f} cyc/mm`")
+                        st.markdown(f"📏 **Spatial Resolution Metrics:** `MTF₅₀ = {mtf_50_freq:.2f} cyc/mm` | `MTF₁₀ = {mtf_10_freq:.2f} cyc/mm`")
 
         st.markdown("---")
         col_meta1, col_meta2 = st.columns(2)
         with col_meta1:
-            with st.expander("📋 Key Metadata Summary"):
+            with st.expander("📋 Active Plane Metadata Summary"):
                 info = {
                     "Modality": modality,
-                    "Slice Number": f"{slice_index} of {total_slices}",
+                    "Reconstruction Plane": view_plane.split()[0],
+                    "Slice Number": f"{slice_index} of {max_slider if total_slices > 1 else 1}",
                     "Patient ID": getattr(ds, "PatientID", "N/A"),
                     "Study Description": getattr(ds, "StudyDescription", "N/A"),
                     "Manufacturer": getattr(ds, "Manufacturer", "N/A"),
-                    "Matrix Size": f"{getattr(ds, 'Rows', 'N/A')} x {getattr(ds, 'Columns', 'N/A')}",
+                    "Matrix Size": f"{img_data.shape[0]} x {img_data.shape[1]}",
                 }
                 st.table(pd.DataFrame(list(info.items()), columns=["Parameter", "Value"]))
 
         with col_meta2:
             hist_title = f"Hounsfield Units (HU) — Slice {slice_index}" if modality == "CT" else f"Pixel Intensity — Slice {slice_index}"
             with st.expander(f"📊 Scientific Image Statistics & Histogram"):
-                st.write(f"- **Slice Mean:** {np.mean(img_data):.2f} {unit_label}")
-                st.write(f"- **Slice StdDev:** {np.std(img_data):.2f}")
+                st.write(f"- **Plane Mean:** {np.mean(img_data):.2f} {unit_label}")
+                st.write(f"- **Plane StdDev:** {np.std(img_data):.2f}")
                 
                 fig_hist, ax_hist = plt.subplots(figsize=(4.5, 2.5))
                 ax_hist.hist(img_data.ravel(), bins=50, color='skyblue', edgecolor='black')
                 ax_hist.set_title(hist_title, fontsize=10)
                 ax_hist.set_xlabel(unit_label, fontsize=9)
-                ax_hist.set_ylabel("Frequency (Pixel Count)", fontsize=9)
+                ax_hist.set_ylabel("Frequency", fontsize=9)
                 
                 formatter = ticker.ScalarFormatter(useMathText=True)
                 formatter.set_scientific(True)
@@ -945,14 +989,13 @@ with tab2:
                 ax_hist.yaxis.set_major_formatter(formatter)
                 st.pyplot(fig_hist)
 
-        with st.expander("📋 Explore All DICOM Tags (Raw Metadata)"):
+        with st.expander("📋 Explore Active Slice DICOM Tags (Raw Metadata)"):
             all_tags = [{"Tag": str(elem.tag), "Keyword": getattr(elem, "keyword", ""), "Name": elem.name, "Value": str(elem.value)[:100]} for elem in ds if elem.tag != 0x7fe00010]
             df_tags = pd.DataFrame(all_tags)
             tag_search = st.text_input("🔍 Search DICOM tags", "", key="tag_search_active")
             if tag_search:
                 df_tags = df_tags[df_tags.apply(lambda row: row.astype(str).str.contains(tag_search, case=False).any(), axis=1)]
             st.dataframe(df_tags, use_container_width=True)
-
 # ==================== TAB 3: BATCH CSV REPORT GENERATOR (DRL-ALIGNED) ====================
 with tab3:
     st.header("📊 Batch DRLs & Dataset CSV Report Generator")
