@@ -29,8 +29,21 @@ with st.sidebar:
     st.markdown("👨‍💻 **Konstantinos G. Vasilopoulos**")
     st.markdown("*Medical Physicist & Researcher*")
     st.markdown("✉️ **Email:** `kostasvasilopoulosgr@yahoo.com`")
+    st.markdown("") # Blank space
+    
+    # --- DOWNLOAD MANUAL PDF BUTTON   ---
+    try:
+        with open("MedPhys_Toolkit_Manual.pdf", "rb") as pdf_file:
+            st.download_button(
+                label="📄 Download User Manual (PDF)",
+                data=pdf_file,
+                file_name="MedPhys_Toolkit_Manual.pdf",
+                mime="application/pdf"
+            )
+    except FileNotFoundError:
+        st.caption("📄 User Manual: Uploading soon...")
+        
     st.divider()
-
 # --- MAIN PAGE ---
 st.title("🏥 Open-Source DICOM Toolkit for Medical Physics")
 st.markdown("""
