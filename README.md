@@ -1,6 +1,6 @@
 # 🏥 Open-Source DICOM Toolkit for Medical Physics
 
-A lightweight, open-source web application built with Python and Streamlit, designed for medical physicists, researchers, and clinical engineers. It provides a secure, local interface for DICOM file inspection, advanced image processing, quantitative QA/QC analysis, de-identification compliance, and batch extraction of Diagnostic Reference Levels (DRLs / ΔΕΑ).
+A lightweight, open-source web application built with Python and Streamlit, designed for medical physicists, researchers, and clinical engineers. It provides a secure, local interface for DICOM file inspection, advanced image processing, quantitative QA/QC analysis, de-identification compliance, and batch extraction of Diagnostic Reference Levels (DRLs).
 
 ## 🌐 Live Application
 * **Access the web app here:** [MedPhys DICOM Toolkit](https://dicom-tool-fcpymgt4csqtakjfw2d35r.streamlit.app/)
