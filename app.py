@@ -1019,7 +1019,7 @@ with tab3:
             "Mammography (MG)",
             "Computed Tomography (CT Volumes)",
             "Fluoroscopy & Interventional (XA / RF) [Coming Soon]",
-            "Dental & CBCT (PX / DX) [Coming Soon]"
+            "Dental & CBCT (PX / DX) "
         ],
         index=0,
         horizontal=False,
@@ -1215,9 +1215,49 @@ with tab3:
                                 "Acquisition Mode": v["Acquisition Type"],
                                 "Avg Mean HU": f"{avg_hu:.2f}"
                             })
+                    elif "Dental" in modality_category:
+                        # --- 4. DENTAL & CBCT (PX / DX / IO / CT) MODE ---
+                        for filename in all_filenames:
+                            file_content = zip_in.read(filename)
+                            try:
+                                ds = pydicom.dcmread(io.BytesIO(file_content))
+                                modality_val = str(getattr(ds, "Modality", "UNKNOWN"))
+                                
+                                exp_time = getattr(ds, "ExposureTime", "N/A")
+                                try:
+                                    exp_sec = f"{float(exp_time)/1000.0:.3f}" if float(exp_time) > 10 else f"{float(exp_time):.3f}"
+                                except Exception:
+                                    exp_sec = str(exp_time)
+
+                                # Dental Dose Metrics
+                                dap_val = getattr(ds, "ImageAndFluoroscopyAreaDoseProduct", "N/A")
+                                entrance_dose = getattr(ds, "EntranceDoseInmGy", "N/A")
+                                
+                                # CBCT Specifics
+                                ctdi_val = getattr(ds, "CTDIvol", "N/A")
+                                dlp_val = getattr(ds, "DLP", "N/A")
+
+                                summary_data.append({
+                                    "File Name": filename.split('/')[-1],
+                                    "Patient ID": str(getattr(ds, "PatientID", "UNKNOWN")),
+                                    "Modality": modality_val,
+                                    "Study Description": str(getattr(ds, "StudyDescription", "N/A")),
+                                    "Body Part / Anatomy": str(getattr(ds, "BodyPartExamined", getattr(ds, "PrimaryAnatomicStructureSequence", "N/A"))),
+                                    "Station / Device": str(getattr(ds, "StationName", getattr(ds, "ManufacturerModelName", "N/A"))),
+                                    "kVp": str(getattr(ds, "KVP", "N/A")),
+                                    "Tube Current (mA)": str(getattr(ds, "XRayTubeCurrent", getattr(ds, "TubeCurrent", "N/A"))),
+                                    "Exposure Time (s)": exp_sec,
+                                    "Exposure (mAs)": str(getattr(ds, "Exposure", getattr(ds, "ExposureInmAs", "N/A"))),
+                                    "DAP / KAP (Gy*cm2)": str(dap_val),
+                                    "Entrance Dose (mGy)": str(entrance_dose),
+                                    "CTDIvol (mGy) [CBCT]": str(ctdi_val),
+                                    "DLP (mGy*cm) [CBCT]": str(dlp_val)
+                                })
+                            except Exception:
+                                continue
 
                     else:
-                        st.info("Fluoroscopy and Dental batch DRL modules are reserved for upcoming releases.")
+                        st.info("Fluoroscopy batch DRL modules are reserved for upcoming releases.")
 
                 if summary_data:
                     df_summary = pd.DataFrame(summary_data)
