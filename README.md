@@ -21,10 +21,10 @@ A lightweight, open-source web application built with Python and Streamlit, desi
   * **DICOM Editor:** In-place header editing and download of updated `.dcm` files.
 
 * **📊 Batch DRLs & Dataset CSV Report Generator:** 
-  * **Radiography (DX / CR / DEXA):** Tube parameters (kVp, mA, s, mAs), SID, physical **Field Size at detector plane (mm/cm)**, DAP/KAP, and Entrance Dose.
-  * **Mammography (MG):** **Mean Glandular Dose (MGD)**, **ESAK**, compressed breast thickness, compression force, target/filter combinations, and projections (CC/MLO).
-  * **Computed Tomography (CT Volumes):** Patient/series grouping, Z-coverage, **CTDI_vol**, **Scan DLP**, **Total DLP**, calculated **Scan Length** (DLP, CTDI_vol), Helical mode detection, and Head (16 cm) vs. Body (32 cm) categorization.
-  * **Dental & CBCT (PX / DX / IO / CT):** Tube parameters (kVp, mA, s, mAs), **DAP / KAP**, Entrance Dose, and CBCT-specific dosimetric metrics (**CTDIvol**, **DLP**).
+  * **Radiography (DX / CR / DEXA):** Tube parameters (kVp, mA, s, mAs), SID, physical Field Size at detector plane (mm/cm), DAP/KAP, and Entrance Dose.
+  * **Mammography (MG):** Mean Glandular Dose (MGD), ESAK, compressed breast thickness, compression force, target/filter combinations, and projections (CC/MLO).
+  * **Computed Tomography (CT Volumes):** Patient/series grouping, Z-coverage, CTDI_vol, Scan DLP, Total DLP, calculated Scan Length (DLP, CTDI_vol), Helical mode detection, and Head (16 cm) vs. Body (32 cm) categorization.
+  * **Dental & CBCT (PX / DX / IO / CT):** Tube parameters (kVp, mA, s, mAs), DAP / KAP, Entrance Dose, and CBCT-specific dosimetric metrics (CTDIvol, DLP).
 
 ## 🛡️ Privacy & Security
 All computations are executed locally in the browser session. No medical imaging data or PHI is stored or transmitted externally.
@@ -38,7 +38,7 @@ All computations are executed locally in the browser session. No medical imaging
 * **Pandas** (Tabular summary structures & CSV reports)
 
 ## 📄 License
-This project is open-source and distributed under the [MIT License](LICENSE).
+This project is open-source and distributed under the MIT License.
 
 ---
 **Developer / Creator:** Konstantinos G. Vasilopoulos *(Medical Physicist & Researcher)* | ✉️ `kostasvasilopoulosgr@yahoo.com`
