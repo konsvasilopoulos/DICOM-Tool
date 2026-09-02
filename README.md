@@ -16,14 +16,14 @@ A lightweight, open-source web application built with Python and Streamlit, desi
   * **Modality-Aware Engine:** Automatic mode switching between Hounsfield Units (CT) and Pixel Intensities (Radiography / Mammography).
   * **Image Enhancement:** Brightness, Contrast, Gamma, Sharpness, Unsharp Mask, Median Filter, and Histogram Equalization.
   * **Multi-ROI QC:** Interactive 5-point ROI evaluation (Center, Top, Bottom, Left, Right) in circular or rectangular geometries.
-  * **Spatial Resolution (ESF & MTF):** Line Intensity Profiling extracting Edge Spread Function and Modulation Transfer Function with automatic $MTF_{50}$ and $MTF_{10}$ metrics.
-  * **Quality Control Checks:** Real-time SNR, CNR, percentage field uniformity, and CT water calibration checks ($0 \pm 4\text{ HU}$).
+  * **Spatial Resolution (ESF & MTF):** Line Intensity Profiling extracting Edge Spread Function and Modulation Transfer Function with automatic MTF_50 and MTF_10 metrics.
+  * **Quality Control Checks:** Real-time SNR, CNR, percentage field uniformity, and CT water calibration checks.
   * **DICOM Editor:** In-place header editing and download of updated `.dcm` files.
 
 * **📊 Batch DRLs & Dataset CSV Report Generator:** 
   * **Radiography (DX / CR / DEXA):** Tube parameters (kVp, mA, s, mAs), SID, physical **Field Size at detector plane (mm/cm)**, DAP/KAP, and Entrance Dose.
   * **Mammography (MG):** **Mean Glandular Dose (MGD)**, **ESAK**, compressed breast thickness, compression force, target/filter combinations, and projections (CC/MLO).
-  * **Computed Tomography (CT Volumes):** Patient/series grouping, Z-coverage, **$CTDI_{vol}$**, **Scan DLP**, **Total DLP**, calculated **Scan Length** (DLP, CTDI_vol), Helical mode detection, and Head (16 cm) vs. Body (32 cm) categorization.
+  * **Computed Tomography (CT Volumes):** Patient/series grouping, Z-coverage, **CTDI_vol**, **Scan DLP**, **Total DLP**, calculated **Scan Length** (DLP, CTDI_vol), Helical mode detection, and Head (16 cm) vs. Body (32 cm) categorization.
   * **Dental & CBCT (PX / DX / IO / CT):** Tube parameters (kVp, mA, s, mAs), **DAP / KAP**, Entrance Dose, and CBCT-specific dosimetric metrics (**CTDIvol**, **DLP**).
 
 ## 🛡️ Privacy & Security
