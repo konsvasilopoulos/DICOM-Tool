@@ -23,7 +23,8 @@ A lightweight, open-source web application built with Python and Streamlit, desi
 * **📊 Batch DRLs & Dataset CSV Report Generator:** 
   * **Radiography (DX / CR / DEXA):** Tube parameters (kVp, mA, s, mAs), SID, physical **Field Size at detector plane (mm/cm)**, DAP/KAP, and Entrance Dose.
   * **Mammography (MG):** **Mean Glandular Dose (MGD)**, **ESAK**, compressed breast thickness, compression force, target/filter combinations, and projections (CC/MLO).
-  * **Computed Tomography (CT Volumes):** Patient/series grouping, Z-coverage, **$CTDI_{vol}$**, **Scan DLP**, **Total DLP**, calculated **Scan Length** ($\text{DLP}/\text{CTDI}_{\text{vol}}$), Helical mode detection, and Head (16 cm) vs. Body (32 cm) categorization.
+  * **Computed Tomography (CT Volumes):** Patient/series grouping, Z-coverage, **$CTDI_{vol}$**, **Scan DLP**, **Total DLP**, calculated **Scan Length** (DLP, CTDI_vol), Helical mode detection, and Head (16 cm) vs. Body (32 cm) categorization.
+  * **Dental & CBCT (PX / DX / IO / CT):** Tube parameters (kVp, mA, s, mAs), **DAP / KAP**, Entrance Dose, and CBCT-specific dosimetric metrics (**CTDIvol**, **DLP**).
 
 ## 🛡️ Privacy & Security
 All computations are executed locally in the browser session. No medical imaging data or PHI is stored or transmitted externally.
