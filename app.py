@@ -1,3 +1,4 @@
+# --- LIBRARIES & IMPORTS ---
 import io
 import zipfile
 import pydicom
@@ -11,6 +12,7 @@ import matplotlib.patches as patches
 from PIL import Image, ImageFilter, ImageOps, ImageEnhance
 import matplotlib.ticker as ticker
 
+# --- PAGE CONFIGURATION ---
 st.set_page_config(
     page_title="MedPhys DICOM Toolkit",
     page_icon="🏥",
@@ -44,12 +46,13 @@ with st.sidebar:
         
     st.divider()
 
-# --- MAIN PAGE ---
+# --- MAIN PAGE HEADER ---
 st.title("🏥 Open-Source DICOM Toolkit for Medical Physics")
 st.markdown("""
 Quickly inspect, adjust, anonymize, and batch-analyze DICOM datasets locally with modality-aware processing.
 """)
 
+# --- DEMO DATA GENERATOR: CT VOLUMES ---
 def generate_demo_ct():
     file_meta = pydicom.dataset.FileMetaDataset()
     file_meta.MediaStorageSOPClassUID = pydicom.uid.UID('1.2.840.10008.5.1.4.1.1.2') 
@@ -90,6 +93,7 @@ def generate_demo_ct():
     out_bytes.seek(0)
     return out_bytes.getvalue()
 
+# --- DEMO DATA GENERATOR: RADIOGRAPHY (DX) ---
 def generate_demo_dx():
     file_meta = pydicom.dataset.FileMetaDataset()
     file_meta.MediaStorageSOPClassUID = pydicom.uid.UID('1.2.840.10008.5.1.4.1.1.1') 
@@ -126,13 +130,15 @@ def generate_demo_dx():
     out_bytes.seek(0)
     return out_bytes.getvalue()
 
+# --- TABS INITIALIZATION ---
 tab1, tab2, tab3 = st.tabs(["🔒 DICOM Anonymizer", "🔍 Inspector & Viewer", "📊 Batch CSV Report Generator"])
 
-# ==================== TAB 1: ANONYMIZER ====================
+# ==================== TAB 1: BATCH DICOM ANONYMIZER ====================
 with tab1:
     st.header("🔒 Batch DICOM Anonymizer")
     st.markdown("Upload a **ZIP archive** containing your DICOM files, or generate demo datasets to test the tool instantly.")
 
+    # --- UI: DEMO BUTTONS ---
     with st.expander("🧪 Don't have DICOM files? Generate Test Data"):
         col_d1, col_d2 = st.columns(2)
         with col_d1:
@@ -154,6 +160,7 @@ with tab1:
                 st.success("Demo Portable X-Ray ZIP generated!")
                 st.download_button("📥 Download Demo Portable X-Ray ZIP", demo_dx_buffer, "demo_dx_files.zip", "application/zip", key="dl_dx")
 
+    # --- UI: ANONYMIZER UPLOADER & SETTINGS ---
     uploaded_zip = st.file_uploader("Upload DICOM ZIP Archive", type=["zip"], key="anon_zip")
 
     st.subheader("Anonymization Settings")
@@ -166,6 +173,7 @@ with tab1:
     remove_dates = st.checkbox("Remove Birth Dates & Study Dates*", value=True)
     st.caption("*Recommended for complete clinical data de-identification and privacy compliance.")
 
+    # --- LOGIC: PROCESS ANONYMIZATION ---
     if uploaded_zip is not None:
         if st.button("Run Anonymization"):
             try:
@@ -250,6 +258,7 @@ with tab2:
     st.header("🔍 DICOM Inspector & 3D Volumetric Viewer")
     st.markdown("Upload a **single DICOM file** (`.dcm`) OR a **ZIP archive** containing a 3D CT series to navigate slices and reconstruct planes.")
 
+    # --- FILE UPLOAD & DICOM PARSING ---
     uploaded_input = st.file_uploader("Upload DICOM File or ZIP Archive", type=["dcm", "IMA", "zip"], key="inspect_input")
 
     datasets_list = []
@@ -269,6 +278,7 @@ with tab2:
                         except Exception:
                             continue
                     
+                    # --- 3D VOLUME SORTING (BY Z-AXIS) ---
                     def get_z_coord(d):
                         try:
                             return float(d.ImagePositionPatient[2])
@@ -286,6 +296,7 @@ with tab2:
         except Exception as e:
             st.error(f"Error reading input: {e}")
 
+    # --- MODALITY & METADATA EXTRACTION ---
     if len(datasets_list) > 0:
         total_slices = len(datasets_list)
         ref_ds = datasets_list[0]
@@ -309,13 +320,13 @@ with tab2:
         
         with col_left_viewer:
             
-            # --- Placeholders for Layout Order ---
+            # --- PLACEHOLDERS FOR ORDERING UI ELEMENTS ---
             header_ph = st.empty()
             quick_adj_ph = st.empty()
             plot_ph = st.empty()
             mag_ph = st.empty()
             
-            # --- Navigation Container (Appears BELOW the image visually) ---
+            # --- MULTI-PLANAR RECONSTRUCTION (MPR) NAVIGATION ---
             nav_container = st.container()
             with nav_container:
                 st.markdown("---")
@@ -390,9 +401,9 @@ with tab2:
             
             unit_label = "HU" if modality == "CT" else "Intensity"
             
-            # --- Render Top Elements via Placeholders ---
             header_ph.subheader(f"🖼️ Diagnostic Viewer ({view_plane.split()[0]} - Slice {slice_index})")
             
+            # --- IMAGE ADJUSTMENTS & FILTERS ---
             with quick_adj_ph.container():
                 st.markdown("##### Quick Adjustments & Filters")
                 q_col1, q_col2 = st.columns(2)
@@ -409,7 +420,6 @@ with tab2:
                     key=f"filt_{view_plane}_{slice_index}"
                 )
             
-            # --- Apply Filters ---
             img_adjusted = img_data + brightness_offset
             mean_val = np.mean(img_adjusted)
             img_adjusted = (img_adjusted - mean_val) * contrast_factor + mean_val
@@ -452,7 +462,7 @@ with tab2:
             img_h, img_w = img_data.shape
             cx_default, cy_default = img_w // 2, img_h // 2
             
-            # --- 1. Multi-ROI Drawing ---
+            # --- DRAW MULTI-ROI ---
             roi_summary_data = []
             roi_configs_all = [
                 {"name": "Center", "default_dx": 0, "default_dy": 0, "color": "red"},
@@ -500,7 +510,7 @@ with tab2:
                         "Max": np.max(roi_pixels)
                     })
 
-            # --- 2. Distance Ruler Drawing ---
+            # --- DRAW MEASUREMENT TOOLS ---
             enable_ruler = st.session_state.get("enable_ruler", False)
             pixel_spacing_val = st.session_state.get("calib_spacing", 1.0)
             if enable_ruler:
@@ -510,7 +520,6 @@ with tab2:
                 ry2 = st.session_state.get("ruler_y2", img_h // 2)
                 ax.plot([rx1, rx2], [ry1, ry2], color='yellow', linewidth=1.0, marker='o', markersize=3)
 
-            # --- 3. Pixel Probe Drawing ---
             enable_probe = st.session_state.get("enable_probe", False)
             if enable_probe:
                 pr_x = int(st.session_state.get("probe_x", img_w // 2))
@@ -519,7 +528,6 @@ with tab2:
                 ax.plot([pr_x - arm, pr_x + arm], [pr_y, pr_y], color='darkorange', linewidth=1.2)
                 ax.plot([pr_x, pr_x], [pr_y - arm, pr_y + arm], color='darkorange', linewidth=1.2)
 
-            # --- 4. Goniometer Drawing ---
             enable_angle = st.session_state.get("enable_angle", False)
             if enable_angle:
                 vx = st.session_state.get("ang_vx", img_w // 2)
@@ -534,7 +542,6 @@ with tab2:
                 ax.plot([ax_pt], [ay_pt], marker='o', color='yellow', markersize=3)
                 ax.plot([bx_pt], [by_pt], marker='o', color='yellow', markersize=3)
 
-            # --- 5. Magnifier Bounding Box Drawing ---
             enable_mag = st.session_state.get("enable_mag", False)
             if enable_mag:
                 mag_cx = int(st.session_state.get("mag_x", img_w // 2))
@@ -549,7 +556,6 @@ with tab2:
                 mag_rect = patches.Rectangle((mx1, my1), mx2 - mx1, my2 - my1, linewidth=1.2, edgecolor='magenta', linestyle='--', facecolor='none')
                 ax.add_patch(mag_rect)
 
-            # --- 6. Line Profile Overlay Drawing ---
             enable_lp = st.session_state.get("enable_line_profile", False)
             if enable_lp:
                 lx1 = st.session_state.get("lp_x1", img_w // 4)
@@ -558,17 +564,25 @@ with tab2:
                 ly2 = st.session_state.get("lp_y2", img_h // 2)
                 ax.plot([lx1, lx2], [ly1, ly2], color='cyan', linewidth=1.0, linestyle='--', marker='o', markersize=3)
 
-            # --- 7. Flat-Field Bad Pixels Visualization ---
+            # --- DRAW BAD PIXEL VISUALIZATION ---
             if st.session_state.get("show_bad_pixels", False) and "bad_pixel_coords" in st.session_state:
                 bp_coords = st.session_state["bad_pixel_coords"]
                 if len(bp_coords) > 0:
                     bp_y, bp_x = zip(*bp_coords)
                     ax.scatter(bp_x, bp_y, color='red', s=4, marker='x', label='Defective Pixels')
-
-            # Render Plot into Placeholder
+                    
+            # --- DRAW STEP-WEDGE PROFILE ---
+            enable_sw_profile = st.session_state.get("enable_sw_profile", False)
+            if enable_sw_profile and modality in ["DX", "CR"]:
+                sw_x1 = st.session_state.get("sw_x1", img_w // 4)
+                sw_y1 = st.session_state.get("sw_y1", img_h // 2)
+                sw_x2 = st.session_state.get("sw_x2", 3 * img_w // 4)
+                sw_y2 = st.session_state.get("sw_y2", img_h // 2)
+                ax.plot([sw_x1, sw_x2], [sw_y1, sw_y2], color='springgreen', linewidth=1.5, linestyle='-.', marker='s', markersize=4)
+                
             plot_ph.pyplot(fig)
             
-            # --- Render Magnifier Inset ---
+            # --- RENDER MAGNIFIER INSET ---
             if enable_mag:
                 with mag_ph.container():
                     mag_factor = st.session_state.get("mag_factor", 2)
@@ -580,7 +594,6 @@ with tab2:
                         ax_mag.axis('off')
                         st.pyplot(fig_mag)
 
-            # --- Download Button (Added AT THE BOTTOM of the Slider) ---
             with nav_container:
                 st.markdown("<br>", unsafe_allow_html=True)
                 img_buf = io.BytesIO()
@@ -588,13 +601,16 @@ with tab2:
                 img_buf.seek(0)
                 st.download_button("📥 Download Active Slice PNG", img_buf, file_name=f"plane_{view_plane.split()[0]}_slice_{slice_index}.png", mime="image/png")
 
+        # --- TOOLBOX & QC METRICS (RIGHT COLUMN) ---
         with col_right_controls:
             st.subheader("⚙️ Toolbox & QC Tools")
             
+            # --- TOOL: VISUAL ENHANCEMENTS ---
             with st.expander("🎨 Visual Enhancements & Colormaps", expanded=False):
                 st.selectbox("Color Palette", ["bone", "gray", "jet", "hot", "viridis"], key="colormap_choice")
                 st.checkbox("Invert Black/White (Invert Image)", key="invert_choice")
 
+            # --- TOOL: MULTI-ROI SETTINGS ---
             with st.expander("🎯 Multi-ROI Analysis", expanded=True):
                 st.markdown("Select ROIs to display & analyze on active slice:")
                 c_chk1, c_chk2, c_chk3, c_chk4, c_chk5 = st.columns(5)
@@ -622,6 +638,7 @@ with tab2:
                             st.slider(f"Radius ({r_name})", min_value=5, max_value=50, value=20, key=f"rad_{r_name}")
                         st.divider()
 
+            # --- TOOL: DISTANCE RULER ---
             with st.expander("📏 Distance Ruler, Calibration & Pixel Probe", expanded=False):
                 auto_sp = 1.0
                 if hasattr(ds, "PixelSpacing") and ds.PixelSpacing:
@@ -661,6 +678,7 @@ with tab2:
                     val_probe = img_data[pr_y_in, pr_x_in]
                     st.success(f"📍 **Position:** `(X: {pr_x_in}, Y: {pr_y_in})` | **Value:** `{val_probe:.2f} {unit_label}`")
 
+            # --- TOOL: GONIOMETER ---
             with st.expander("📐 Angle & Goniometer Tool", expanded=False):
                 st.markdown("Measure anatomical or geometric angles ($\theta^\circ$) using 3 points:")
                 st.checkbox("📐 Enable Goniometer", key="enable_angle")
@@ -695,6 +713,7 @@ with tab2:
                     else:
                         st.warning("Ensure Arm points are not overlapping with the Vertex.")
 
+            # --- TOOL: MAGNIFIER ---
             with st.expander("🔍 Magnifier / Zoom Loupe", expanded=False):
                 st.markdown("Locally zoom in on microcalcifications or sharp edges:")
                 st.checkbox("🔍 Enable Magnifier", key="enable_mag")
@@ -707,6 +726,7 @@ with tab2:
                         st.slider("Magnifier Center Y", 0, img_h, img_h // 2, key="mag_y")
                         st.slider("Inspection Box Size (px)", 20, 120, 60, step=10, key="mag_box_sz")
 
+            # --- TOOL: LINE INTENSITY PROFILE ---
             with st.expander("📈 Line Intensity Profile (ESF / MTF)", expanded=False):
                 st.markdown("Define a line profile across an edge for spatial resolution analysis:")
                 st.checkbox("📏 Enable Line Intensity Profile", key="enable_line_profile")
@@ -719,6 +739,7 @@ with tab2:
                         st.number_input("X2 (#2)", 0, img_w, 3 * img_w // 4, key="lp_x2")
                         st.number_input("Y2 (#2)", 0, img_h, img_h // 2, key="lp_y2")
 
+            # --- TOOL: SNR & CNR METRICS ---
             with st.expander("🔬 Advanced SNR & CNR Metrics", expanded=False):
                 if roi_summary_data:
                     st.markdown("**SNR per Active ROI:**")
@@ -749,6 +770,7 @@ with tab2:
                 else:
                     st.warning("Enable and configure ROIs in 'Multi-ROI Analysis' to calculate metrics.")
 
+            # --- TOOL: CT UNIFORMITY & WATER QC ---
             if modality == "CT":
                 with st.expander("🎯 CT Uniformity & Water Calibration QC", expanded=False):
                     if roi_summary_data:
@@ -802,6 +824,7 @@ with tab2:
                     else:
                         st.warning("Enable ROIs in Multi-ROI Analysis first.")
 
+            # --- TOOL: FLAT-FIELD UNIFORMITY QC ---
             if modality in ["DX", "CR", "MG"]:
                 with st.expander("🎯 Flat-Field Uniformity & Bad Pixel Detector", expanded=False):
                     st.markdown("Perform detector-wide uniformity checks & dead/hot pixel screening:")
@@ -840,6 +863,7 @@ with tab2:
                         else:
                             st.warning("⚠️ **Flat-Field QC: CHECK** (Inspect detector panel)")
 
+            # --- TOOL: MAMMOGRAPHY FOM QC ---
             if modality == "MG":
                 with st.expander("🌸 Mammography QC & FOM Calculator", expanded=False):
                     st.markdown("Calculate the **Figure of Merit** ($\text{FOM} = \text{CNR}^2 / \text{MGD}$) for protocol optimization:")
@@ -873,6 +897,78 @@ with tab2:
                     else:
                         st.warning("Enable at least 2 ROIs (e.g. Center as target and Top as background) in Multi-ROI Analysis.")
 
+            # --- TOOL: STEP-WEDGE LINEARITY QC (DX / CR) ---
+            if modality in ["DX", "CR"]:
+                with st.expander("📶 Step-Wedge Linearity & Dynamic Range", expanded=False):
+                    st.markdown("Assess detector response linearity across a step-wedge phantom:")
+                    
+                    st.checkbox("📏 Enable Step-Wedge Line Profile", key="enable_sw_profile")
+                    if st.session_state.get("enable_sw_profile", False):
+                        st.caption("Position the line from the start of the first step to the end of the last step.")
+                        sw_col1, sw_col2 = st.columns(2)
+                        with sw_col1:
+                            st.number_input("Start X", 0, img_w, img_w // 4, key="sw_x1")
+                            st.number_input("Start Y", 0, img_h, img_h // 2, key="sw_y1")
+                        with sw_col2:
+                            st.number_input("End X", 0, img_w, 3 * img_w // 4, key="sw_x2")
+                            st.number_input("End Y", 0, img_h, img_h // 2, key="sw_y2")
+                        
+                        num_steps = st.slider("Number of Wedge Steps", min_value=3, max_value=25, value=11, step=1)
+                        
+                        if st.button("🚀 Analyze Step-Wedge Linearity"):
+                            sw_x1 = st.session_state.get("sw_x1")
+                            sw_y1 = st.session_state.get("sw_y1")
+                            sw_x2 = st.session_state.get("sw_x2")
+                            sw_y2 = st.session_state.get("sw_y2")
+                            
+                            num_points = int(np.hypot(sw_x2 - sw_x1, sw_y2 - sw_y1))
+                            if num_points > num_steps:
+                                x_coords = np.linspace(sw_x1, sw_x2, num_points)
+                                y_coords = np.linspace(sw_y1, sw_y2, num_points)
+                                
+                                profile_vals = img_data[np.clip(np.round(y_coords).astype(int), 0, img_h - 1),
+                                                          np.clip(np.round(x_coords).astype(int), 0, img_w - 1)]
+                                
+                                step_means = []
+                                segment_length = num_points // num_steps
+                                
+                                # Extract mean from the center of each step (25% to 75%) to avoid edge blurring
+                                for i in range(num_steps):
+                                    start_idx = i * segment_length
+                                    core_start = start_idx + int(segment_length * 0.25)
+                                    core_end = start_idx + int(segment_length * 0.75)
+                                    step_pixels = profile_vals[core_start:core_end]
+                                    step_means.append(np.mean(step_pixels))
+                                    
+                                step_indices = np.arange(1, num_steps + 1)
+                                
+                                # Linear Regression & R^2 calculation
+                                slope, intercept = np.polyfit(step_indices, step_means, 1)
+                                r_matrix = np.corrcoef(step_indices, step_means)
+                                r_squared = r_matrix[0, 1] ** 2
+                                
+                                best_fit_line = slope * step_indices + intercept
+                                
+                                fig_sw, ax_sw = plt.subplots(figsize=(5, 3.5))
+                                ax_sw.plot(step_indices, step_means, marker='o', color='royalblue', linestyle='', label='Measured Means')
+                                ax_sw.plot(step_indices, best_fit_line, color='darkorange', linestyle='--', label=f'Fit ($R^2={r_squared:.4f}$)')
+                                ax_sw.set_xlabel("Step Number", fontsize=9)
+                                ax_sw.set_ylabel("Mean Pixel Intensity", fontsize=9)
+                                ax_sw.set_title("Detector Characteristic Curve", fontsize=10, weight='bold')
+                                ax_sw.grid(True, linestyle=':', alpha=0.7)
+                                ax_sw.legend(fontsize=8)
+                                
+                                st.pyplot(fig_sw)
+                                
+                                st.markdown("---")
+                                if r_squared >= 0.98:
+                                    st.success(f"✅ **Linearity QC: PASS** ($R^2 = {r_squared:.4f}$)")
+                                else:
+                                    st.warning(f"⚠️ **Linearity QC: CHECK** ($R^2 = {r_squared:.4f}$ is < 0.98)")
+                            else:
+                                st.error("Line profile too short to extract the requested number of steps.")
+
+            # --- TOOL: DICOM HEADER EDITOR ---
             with st.expander("✏️ DICOM Header Editor & Fixer", expanded=False):
                 st.markdown("Modify core metadata tags and download the updated DICOM slice:")
                 new_pname = st.text_input("Patient Name", value=str(getattr(ds, "PatientName", "")))
@@ -892,6 +988,7 @@ with tab2:
                     st.success("Header updated successfully!")
                     st.download_button("📥 Download Edited .dcm", edited_bytes, file_name=f"edited_slice_{slice_index}.dcm", mime="application/octet-stream")
 
+            # --- MEASUREMENTS TABLE ---
             if roi_summary_data:
                 st.subheader("📋 Measurements Table")
                 df_display = pd.DataFrame([{
@@ -903,6 +1000,7 @@ with tab2:
                 } for d in roi_summary_data])
                 st.table(df_display)
 
+        # --- PLOT: SPATIAL RESOLUTION (ESF/MTF) ---
         if st.session_state.get("enable_line_profile", False):
             st.markdown("---")
             st.subheader(f"📈 Spatial Resolution Analysis: ESF & MTF (Slice {slice_index})")
@@ -964,6 +1062,8 @@ with tab2:
                         st.markdown(f"📏 **Spatial Resolution Metrics:** `MTF₅₀ = {mtf_50_freq:.2f} cyc/mm` | `MTF₁₀ = {mtf_10_freq:.2f} cyc/mm`")
 
         st.markdown("---")
+        
+        # --- METADATA & HISTOGRAM ---
         col_meta1, col_meta2 = st.columns(2)
         with col_meta1:
             with st.expander("📋 Active Plane Metadata Summary"):
@@ -1004,7 +1104,7 @@ with tab2:
                 df_tags = df_tags[df_tags.apply(lambda row: row.astype(str).str.contains(tag_search, case=False).any(), axis=1)]
             st.dataframe(df_tags, use_container_width=True)
 
-# ==================== TAB 3: BATCH CSV REPORT GENERATOR (DRL-ALIGNED) ====================
+# ==================== TAB 3: BATCH DRL & CSV REPORT ====================
 with tab3:
     st.header("📊 Batch DRLs & Dataset CSV Report Generator")
     st.markdown("""
@@ -1215,8 +1315,8 @@ with tab3:
                                 "Acquisition Mode": v["Acquisition Type"],
                                 "Avg Mean HU": f"{avg_hu:.2f}"
                             })
+
                     elif "Dental" in modality_category:
-                        # --- 4. DENTAL & CBCT (PX / DX / IO / CT) MODE ---
                         for filename in all_filenames:
                             file_content = zip_in.read(filename)
                             try:
@@ -1229,11 +1329,9 @@ with tab3:
                                 except Exception:
                                     exp_sec = str(exp_time)
 
-                                # Dental Dose Metrics
                                 dap_val = getattr(ds, "ImageAndFluoroscopyAreaDoseProduct", "N/A")
                                 entrance_dose = getattr(ds, "EntranceDoseInmGy", "N/A")
                                 
-                                # CBCT Specifics
                                 ctdi_val = getattr(ds, "CTDIvol", "N/A")
                                 dlp_val = getattr(ds, "DLP", "N/A")
 
