@@ -511,8 +511,17 @@ with tab2:
                     })
 
             # --- DRAW MEASUREMENT TOOLS ---
-            enable_ruler = st.session_state.get("enable_ruler", False)
             pixel_spacing_val = st.session_state.get("calib_spacing", 1.0)
+            
+            enable_grid = st.session_state.get("enable_grid", False)
+            if enable_grid and pixel_spacing_val > 0:
+                px_per_cm = 10.0 / pixel_spacing_val
+                for x_line in np.arange(0, img_w, px_per_cm):
+                    ax.axvline(x=x_line, color='yellow', linestyle=':', linewidth=0.8, alpha=0.7)
+                for y_line in np.arange(0, img_h, px_per_cm):
+                    ax.axhline(y=y_line, color='yellow', linestyle=':', linewidth=0.8, alpha=0.7)
+
+            enable_ruler = st.session_state.get("enable_ruler", False)
             if enable_ruler:
                 rx1 = st.session_state.get("ruler_x1", img_w // 4)
                 ry1 = st.session_state.get("ruler_y1", img_h // 2)
@@ -563,6 +572,19 @@ with tab2:
                 lx2 = st.session_state.get("lp_x2", 3 * img_w // 4)
                 ly2 = st.session_state.get("lp_y2", img_h // 2)
                 ax.plot([lx1, lx2], [ly1, ly2], color='cyan', linewidth=1.0, linestyle='--', marker='o', markersize=3)
+
+            # --- DRAW COLLIMATOR ALIGNMENT QC ---
+            enable_collimator = st.session_state.get("enable_collimator", False)
+            if enable_collimator and modality in ["DX", "CR"]:
+                r_xmin = st.session_state.get("rad_x_min", img_w // 4)
+                r_xmax = st.session_state.get("rad_x_max", 3 * img_w // 4)
+                r_ymin = st.session_state.get("rad_y_min", img_h // 4)
+                r_ymax = st.session_state.get("rad_y_max", 3 * img_h // 4)
+                
+                rect_rad = patches.Rectangle((r_xmin, r_ymin), r_xmax - r_xmin, r_ymax - r_ymin, 
+                                             linewidth=1.5, edgecolor='lime', linestyle='-', facecolor='none')
+                ax.add_patch(rect_rad)
+                ax.text(r_xmin, r_ymin - 10, "Radiation Field", color='lime', fontsize=8, weight='bold')
 
             # --- DRAW BAD PIXEL VISUALIZATION ---
             if st.session_state.get("show_bad_pixels", False) and "bad_pixel_coords" in st.session_state:
@@ -678,12 +700,17 @@ with tab2:
                     val_probe = img_data[pr_y_in, pr_x_in]
                     st.success(f"📍 **Position:** `(X: {pr_x_in}, Y: {pr_y_in})` | **Value:** `{val_probe:.2f} {unit_label}`")
 
+            # --- TOOL: GEOMETRIC DISTORTION GRID ---
+            with st.expander("📐 Geometric Distortion & Grid Overlay", expanded=False):
+                st.markdown("Overlay a precise 1 cm x 1 cm grid to visually inspect spatial distortion or laser alignment.")
+                st.checkbox("Enable 1 cm x 1 cm Grid", key="enable_grid")
+
             # --- TOOL: GONIOMETER ---
             with st.expander("📐 Angle & Goniometer Tool", expanded=False):
                 st.markdown("Measure anatomical or geometric angles ($\theta^\circ$) using 3 points:")
                 st.checkbox("📐 Enable Goniometer", key="enable_angle")
                 if st.session_state.get("enable_angle", False):
-                    st.markdown("**1. Vertex Point (Κορυφή):**")
+                    st.markdown("**1. Vertex Point:**")
                     col_v1, col_v2 = st.columns(2)
                     with col_v1: st.number_input("Vertex X", 0, img_w, img_w // 2, key="ang_vx")
                     with col_v2: st.number_input("Vertex Y", 0, img_h, img_h // 2, key="ang_vy")
@@ -826,7 +853,7 @@ with tab2:
 
                 # --- 8A.2 DYNAMIC QC: CT LINEARITY & SENSITOMETRY (AAPM TG-66) ---
                 with st.expander("📈 CT Linearity & Sensitometry", expanded=False):
-                    st.markdown("Correlation of Hounsfield Units (HU) with Relative Electron Density ($\rho_e$) according AAPM TG-66.")
+                    st.markdown("Correlation of Hounsfield Units (HU) with Relative Electron Density ($\rho_e$) according to AAPM TG-66.")
                     
                     materials = {
                         "Air": 0.001,
@@ -836,7 +863,7 @@ with tab2:
                         "Teflon": 1.890
                     }
                     
-                    st.markdown("**Insert of measured values (HU):**")
+                    st.markdown("**Insert Measured Values (HU):**")
                     col_lin1, col_lin2, col_lin3 = st.columns(3)
                     with col_lin1: hu_air = st.number_input("Air HU", value=-1000.0, format="%.1f")
                     with col_lin2: hu_water = st.number_input("Water HU", value=0.0, format="%.1f")
@@ -872,7 +899,7 @@ with tab2:
                 with st.expander("📏 Slice Thickness Verification (FWHM)", expanded=False):
                     st.markdown("FWHM Analysis (Full Width at Half Maximum) from phantom ramp.")
                     if st.session_state.get("enable_line_profile", False):
-                        st.info("Used for the active Line Profile (see ESF/MTF) for the calculation .")
+                        st.info("The active Line Profile is used for the calculation (see ESF/MTF).")
                         
                         lx1 = st.session_state.get("lp_x1", img_w // 4)
                         ly1 = st.session_state.get("lp_y1", img_h // 2)
@@ -895,15 +922,15 @@ with tab2:
                                 fwhm_pixels = indices[-1] - indices[0]
                                 fwhm_mm = fwhm_pixels * pixel_spacing_val
                                 
-                                ramp_angle = st.number_input("Ramp angle of phantom degrees)", value=23.0, min_value=1.0, max_value=90.0)
+                                ramp_angle = st.number_input("Phantom Ramp Angle (degrees)", value=23.0, min_value=1.0, max_value=90.0)
                                 actual_thickness = fwhm_mm * np.tan(np.radians(ramp_angle))
                                 
-                                st.success(f"**Measured slice thickness (z-axis):** `{actual_thickness:.2f} mm`")
+                                st.success(f"**Measured Slice Thickness (z-axis):** `{actual_thickness:.2f} mm`")
                                 st.caption(f"FWHM at 2D profile: {fwhm_mm:.2f} mm | Angle correction (tan {ramp_angle}°): {np.tan(np.radians(ramp_angle)):.3f}")
                             else:
-                                st.warning(" No clear peak detected at the profile. Make sure that the line intersects rightly the ramp.")
+                                st.warning("No clear peak detected at the profile. Make sure that the line correctly intersects the ramp.")
                     else:
-                        st.warning("Enable **Line Intensity Profile** and draw a vertical line at ramp of phantom.")
+                        st.warning("Enable **Line Intensity Profile** and draw a vertical line across the phantom ramp.")
 
                 # --- 8A.4 DYNAMIC QC: NOISE POWER SPECTRUM (AAPM TG-233) ---
                 with st.expander("🌌 Noise Power Spectrum (NPS)", expanded=False):
@@ -938,9 +965,9 @@ with tab2:
                                 fig_nps.colorbar(im_nps, ax=ax_nps, fraction=0.046, pad=0.04, label="Log10(NPS)")
                                 st.pyplot(fig_nps)
                         else:
-                            st.warning("Για τον υπολογισμό του NPS, το **Center ROI** πρέπει να είναι ενεργοποιημένο και να έχει σχήμα **Square**.")
+                            st.warning("For NPS calculation, the **Center ROI** must be enabled and set to **Square** shape.")
                     else:
-                        st.warning("Ενεργοποιήστε το **Center ROI** (ως τετράγωνο) από το Multi-ROI Analysis.")
+                        st.warning("Enable the **Center ROI** (as Square) from the Multi-ROI Analysis.")
 
             # --- TOOL: FLAT-FIELD UNIFORMITY QC ---
             if modality in ["DX", "CR", "MG"]:
@@ -980,6 +1007,51 @@ with tab2:
                             st.success("✅ **Flat-Field QC: PASS** (Defective pixels < 0.05%)")
                         else:
                             st.warning("⚠️ **Flat-Field QC: CHECK** (Inspect detector panel)")
+
+            # --- TOOL: LIGHT/RADIATION FIELD ALIGNMENT QC (DX/CR) ---
+            if modality in ["DX", "CR"]:
+                with st.expander("🎯 Light/Radiation Field Alignment QC", expanded=False):
+                    st.markdown("Assess the coincidence of the light field and the X-ray radiation field (collimator alignment).")
+                    st.checkbox("Enable Alignment QC", key="enable_collimator")
+                    if st.session_state.get("enable_collimator", False):
+                        sid_cm = st.number_input("Source-to-Image Distance (SID) [cm]", min_value=50.0, value=100.0, step=1.0)
+                        
+                        st.markdown("**Light Field Settings (Set at Collimator):**")
+                        col_l1, col_l2 = st.columns(2)
+                        with col_l1: light_x_cm = st.number_input("Light Field Width X [cm]", min_value=1.0, value=24.0)
+                        with col_l2: light_y_cm = st.number_input("Light Field Height Y [cm]", min_value=1.0, value=30.0)
+                        
+                        st.markdown("**Radiation Field Edges (Detected on Image):**")
+                        col_r1, col_r2 = st.columns(2)
+                        with col_r1: 
+                            st.number_input("Left Edge (X min)", 0, img_w, img_w // 4, key="rad_x_min")
+                            st.number_input("Right Edge (X max)", 0, img_w, 3 * img_w // 4, key="rad_x_max")
+                        with col_r2:
+                            st.number_input("Top Edge (Y min)", 0, img_h, img_h // 4, key="rad_y_min")
+                            st.number_input("Bottom Edge (Y max)", 0, img_h, 3 * img_h // 4, key="rad_y_max")
+                            
+                        # Calculations
+                        rad_w_mm = (st.session_state.rad_x_max - st.session_state.rad_x_min) * st.session_state.calib_spacing
+                        rad_h_mm = (st.session_state.rad_y_max - st.session_state.rad_y_min) * st.session_state.calib_spacing
+                        light_w_mm = light_x_cm * 10.0
+                        light_h_mm = light_y_cm * 10.0
+                        
+                        delta_x = abs(rad_w_mm - light_w_mm)
+                        delta_y = abs(rad_h_mm - light_h_mm)
+                        
+                        # Standard tolerance is typically 2% of SID
+                        tol_mm = 0.02 * (sid_cm * 10.0)
+                        
+                        st.markdown("---")
+                        st.write(f"- **Measured Radiation Field:** `{rad_w_mm:.1f} x {rad_h_mm:.1f} mm`")
+                        st.write(f"- **Deviation $\Delta X$ (Width):** `{delta_x:.1f} mm`")
+                        st.write(f"- **Deviation $\Delta Y$ (Height):** `{delta_y:.1f} mm`")
+                        st.write(f"- **Tolerance Limit (2% of SID):** `{tol_mm:.1f} mm`")
+                        
+                        if delta_x <= tol_mm and delta_y <= tol_mm:
+                            st.success("✅ **Alignment QC: PASS** (Deviations $\le 2\%$ SID)")
+                        else:
+                            st.error("❌ **Alignment QC: FAIL** (Deviations $> 2\%$ SID)")
 
             # --- TOOL: MAMMOGRAPHY FOM QC ---
             if modality == "MG":
