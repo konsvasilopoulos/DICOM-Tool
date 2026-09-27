@@ -17,7 +17,7 @@ A lightweight, open-source web application built with Python and Streamlit, desi
   * **Image Enhancement:** Brightness, Contrast, Gamma, Sharpness, Unsharp Mask, Median Filter, and Histogram Equalization.
   * **Multi-ROI QC:** Interactive 5-point ROI evaluation (Center, Top, Bottom, Left, Right) in circular or rectangular geometries.
   * **Spatial Resolution (ESF & MTF):** Line Intensity Profiling extracting Edge Spread Function and Modulation Transfer Function with automatic MTF_50 and MTF_10 metrics.
-  * **Quality Control Checks:** Real-time SNR, CNR, percentage field uniformity, and CT water calibration checks.
+  * **Quality Control Checks:** Real-time SNR, CNR, percentage field uniformity, CT water calibration checks, Linearity and Sensitometry, Slice Thickness(FWHM) and 2D Noise Power Spectrum.
   * **DICOM Editor:** In-place header editing and download of updated `.dcm` files.
 
 * **📊 Batch DRLs & Dataset CSV Report Generator:** 
