@@ -824,6 +824,124 @@ with tab2:
                     else:
                         st.warning("Enable ROIs in Multi-ROI Analysis first.")
 
+                # --- 8A.2 DYNAMIC QC: CT LINEARITY & SENSITOMETRY (AAPM TG-66) ---
+                with st.expander("📈 CT Linearity & Sensitometry", expanded=False):
+                    st.markdown("Correlation of Hounsfield Units (HU) with Relative Electron Density ($\rho_e$) according AAPM TG-66.")
+                    
+                    materials = {
+                        "Air": 0.001,
+                        "Water": 1.000,
+                        "Acrylic": 1.147,
+                        "Delrin": 1.359,
+                        "Teflon": 1.890
+                    }
+                    
+                    st.markdown("**Insert of measured values (HU):**")
+                    col_lin1, col_lin2, col_lin3 = st.columns(3)
+                    with col_lin1: hu_air = st.number_input("Air HU", value=-1000.0, format="%.1f")
+                    with col_lin2: hu_water = st.number_input("Water HU", value=0.0, format="%.1f")
+                    with col_lin3: hu_acrylic = st.number_input("Acrylic HU", value=120.0, format="%.1f")
+                    
+                    col_lin4, col_lin5, _ = st.columns(3)
+                    with col_lin4: hu_delrin = st.number_input("Delrin HU", value=340.0, format="%.1f")
+                    with col_lin5: hu_teflon = st.number_input("Teflon HU", value=990.0, format="%.1f")
+                    
+                    if st.button("📊 Sensitometry Graph"):
+                        y_hu = np.array([hu_air, hu_water, hu_acrylic, hu_delrin, hu_teflon])
+                        x_rho = np.array(list(materials.values()))
+                        
+                        m_fit, b_fit = np.polyfit(x_rho, y_hu, 1)
+                        correlation_matrix = np.corrcoef(x_rho, y_hu)
+                        r_squared = correlation_matrix[0, 1]**2
+                        
+                        fig_lin, ax_lin = plt.subplots(figsize=(6, 4))
+                        ax_lin.plot(x_rho, m_fit * x_rho + b_fit, color="red", linestyle="--", label=f"Fit (R² = {r_squared:.4f})")
+                        ax_lin.scatter(x_rho, y_hu, color="blue", zorder=5, label="Measured HU")
+                        
+                        for i, txt in enumerate(materials.keys()):
+                            ax_lin.annotate(txt, (x_rho[i], y_hu[i]), textcoords="offset points", xytext=(0,10), ha='center', fontsize=8)
+                            
+                        ax_lin.set_xlabel(r"Relative Electron Density ($\rho_e$)")
+                        ax_lin.set_ylabel("CT Number (HU)")
+                        ax_lin.set_title("CT Electron Density Calibration Curve (AAPM TG-66)")
+                        ax_lin.grid(True, linestyle=":", alpha=0.7)
+                        ax_lin.legend()
+                        st.pyplot(fig_lin)
+
+                # --- 8A.3 DYNAMIC QC: SLICE THICKNESS (FWHM) ---
+                with st.expander("📏 Slice Thickness Verification (FWHM)", expanded=False):
+                    st.markdown("FWHM Analysis (Full Width at Half Maximum) from phantom ramp.")
+                    if st.session_state.get("enable_line_profile", False):
+                        st.info("Used for the active Line Profile (see ESF/MTF) for the calculation .")
+                        
+                        lx1 = st.session_state.get("lp_x1", img_w // 4)
+                        ly1 = st.session_state.get("lp_y1", img_h // 2)
+                        lx2 = st.session_state.get("lp_x2", 3 * img_w // 4)
+                        ly2 = st.session_state.get("lp_y2", img_h // 2)
+                        
+                        num_points = int(np.hypot(lx2 - lx1, ly2 - ly1))
+                        if num_points > 1:
+                            x_coords = np.linspace(lx1, lx2, num_points)
+                            y_coords = np.linspace(ly1, ly2, num_points)
+                            temp_profile = img_data[np.clip(np.round(y_coords).astype(int), 0, img_h - 1),
+                                                    np.clip(np.round(x_coords).astype(int), 0, img_w - 1)]
+                                                    
+                            prof_min = np.min(temp_profile)
+                            prof_max = np.max(temp_profile)
+                            half_max = prof_min + (prof_max - prof_min) / 2.0
+                            
+                            indices = np.where(temp_profile >= half_max)[0]
+                            if len(indices) > 1:
+                                fwhm_pixels = indices[-1] - indices[0]
+                                fwhm_mm = fwhm_pixels * pixel_spacing_val
+                                
+                                ramp_angle = st.number_input("Ramp angle of phantom degrees)", value=23.0, min_value=1.0, max_value=90.0)
+                                actual_thickness = fwhm_mm * np.tan(np.radians(ramp_angle))
+                                
+                                st.success(f"**Measured slice thickness (z-axis):** `{actual_thickness:.2f} mm`")
+                                st.caption(f"FWHM at 2D profile: {fwhm_mm:.2f} mm | Angle correction (tan {ramp_angle}°): {np.tan(np.radians(ramp_angle)):.3f}")
+                            else:
+                                st.warning(" No clear peak detected at the profile. Make sure that the line intersects rightly the ramp.")
+                    else:
+                        st.warning("Enable **Line Intensity Profile** and draw a vertical line at ramp of phantom.")
+
+                # --- 8A.4 DYNAMIC QC: NOISE POWER SPECTRUM (AAPM TG-233) ---
+                with st.expander("🌌 Noise Power Spectrum (NPS)", expanded=False):
+                    st.markdown("2D FFT noise power spectrum analysis (AAPM TG-233).")
+                    if roi_summary_data:
+                        center_roi_dict = next((item for item in roi_summary_data if item["ROI Name"] == "Center"), None)
+                        if center_roi_dict and center_roi_dict["Shape"] == "Square":
+                            st.info("Square ROI detected at the center. Calculation of 2D Noise Power Spectrum...")
+                            
+                            r_size = st.session_state.get("size_Center", 30)
+                            pos_x = st.session_state.get("x_Center", cx_default)
+                            pos_y = st.session_state.get("y_Center", cy_default)
+                            
+                            x1, x2 = max(0, pos_x - r_size//2), min(img_w, pos_x + r_size//2)
+                            y1, y2 = max(0, pos_y - r_size//2), min(img_h, pos_y + r_size//2)
+                            roi_pixels = img_data[y1:y2, x1:x2]
+                            
+                            if roi_pixels.size > 0:
+                                roi_mean_zero = roi_pixels - np.mean(roi_pixels)
+                                
+                                fft2 = np.fft.fft2(roi_mean_zero)
+                                nps_2d = np.abs(np.fft.fftshift(fft2)) ** 2
+                                
+                                pixel_area_mm2 = (pixel_spacing_val ** 2) if pixel_spacing_val > 0 else 1.0
+                                nps_2d = (nps_2d * pixel_area_mm2) / (r_size * r_size)
+                                
+                                fig_nps, ax_nps = plt.subplots(figsize=(5, 5))
+                                im_nps = ax_nps.imshow(np.log10(nps_2d + 1e-5), cmap="jet", extent=[-0.5, 0.5, -0.5, 0.5])
+                                ax_nps.set_title("2D Noise Power Spectrum (Log Scale)")
+                                ax_nps.set_xlabel("Spatial Frequency fx (cycles/pixel)")
+                                ax_nps.set_ylabel("Spatial Frequency fy (cycles/pixel)")
+                                fig_nps.colorbar(im_nps, ax=ax_nps, fraction=0.046, pad=0.04, label="Log10(NPS)")
+                                st.pyplot(fig_nps)
+                        else:
+                            st.warning("Για τον υπολογισμό του NPS, το **Center ROI** πρέπει να είναι ενεργοποιημένο και να έχει σχήμα **Square**.")
+                    else:
+                        st.warning("Ενεργοποιήστε το **Center ROI** (ως τετράγωνο) από το Multi-ROI Analysis.")
+
             # --- TOOL: FLAT-FIELD UNIFORMITY QC ---
             if modality in ["DX", "CR", "MG"]:
                 with st.expander("🎯 Flat-Field Uniformity & Bad Pixel Detector", expanded=False):
