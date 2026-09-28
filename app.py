@@ -305,6 +305,15 @@ with tab2:
         station_name = str(getattr(ref_ds, "StationName", "")).upper()
         is_portable = "PORTABLE" in study_desc or "MOBILE" in study_desc or "PORTABLE" in station_name or "MOBILE" in station_name
         
+        # --- AUTO DETECT PIXEL SPACING FOR GLOBAL USE (AREA/RULER) ---
+        auto_sp = 1.0
+        try:
+            if hasattr(ref_ds, "PixelSpacing") and ref_ds.PixelSpacing:
+                auto_sp = float(ref_ds.PixelSpacing[0])
+        except Exception:
+            pass
+        pixel_spacing_val = st.session_state.get("calib_spacing", auto_sp)
+        
         if modality == "CT":
             st.success(f"📌 Detected Modality: **CT (Computed Tomography)** — Hounsfield Units active.")
         elif modality == "MG":
@@ -326,27 +335,46 @@ with tab2:
             plot_ph = st.empty()
             mag_ph = st.empty()
             
-            # --- MULTI-PLANAR RECONSTRUCTION (MPR) NAVIGATION ---
+            # --- MULTI-PLANAR RECONSTRUCTION (MPR) NAVIGATION & MIP/MINIP ---
             nav_container = st.container()
             with nav_container:
                 st.markdown("---")
                 if total_slices > 1:
                     view_plane = st.radio("📐 **MPR View Plane Selection:**", ["Axial (Z)", "Coronal (Y)", "Sagittal (X)"], horizontal=True)
+                    
+                    proj_mode = "Single Slice"
+                    if modality == "CT":
+                        proj_mode = st.radio("📽️ **3D Projection Mode:**", ["Single Slice", "MIP", "MinIP"], horizontal=True)
+                        
                     z_dim = total_slices
                     y_dim, x_dim = ref_ds.Rows, ref_ds.Columns
                     
                     if view_plane == "Axial (Z)":
                         max_slider = z_dim
                         slice_index = st.slider("🛞 Axial Slice Navigator (Z-Axis)", 1, max_slider, max_slider//2)
-                        ds = datasets_list[slice_index - 1]
-                        pixel_array = ds.pixel_array.astype(np.float32)
-                        if modality == "CT":
-                            slope = float(getattr(ds, "RescaleSlope", 1.0))
-                            intercept = float(getattr(ds, "RescaleIntercept", 0.0))
-                            img_data = pixel_array * slope + intercept
+                        
+                        if proj_mode in ["MIP", "MinIP"]:
+                            with st.spinner(f"Generating Axial {proj_mode}..."):
+                                vol_3d = np.stack([d.pixel_array.astype(np.float32) for d in datasets_list])
+                                slope = float(getattr(ref_ds, "RescaleSlope", 1.0))
+                                intercept = float(getattr(ref_ds, "RescaleIntercept", 0.0))
+                                vol_3d = vol_3d * slope + intercept
+                                if proj_mode == "MIP":
+                                    img_data = np.max(vol_3d, axis=0)
+                                else:
+                                    img_data = np.min(vol_3d, axis=0)
+                            ds = datasets_list[slice_index - 1]
+                            aspect_ratio = 1.0
                         else:
-                            img_data = pixel_array
-                        aspect_ratio = 1.0
+                            ds = datasets_list[slice_index - 1]
+                            pixel_array = ds.pixel_array.astype(np.float32)
+                            if modality == "CT":
+                                slope = float(getattr(ds, "RescaleSlope", 1.0))
+                                intercept = float(getattr(ds, "RescaleIntercept", 0.0))
+                                img_data = pixel_array * slope + intercept
+                            else:
+                                img_data = pixel_array
+                            aspect_ratio = 1.0
 
                     elif view_plane == "Coronal (Y)":
                         max_slider = y_dim
@@ -357,7 +385,14 @@ with tab2:
                                 slope = float(getattr(ref_ds, "RescaleSlope", 1.0))
                                 intercept = float(getattr(ref_ds, "RescaleIntercept", 0.0))
                                 vol_3d = vol_3d * slope + intercept
-                            img_data = vol_3d[:, slice_index - 1, :]
+                            
+                            if proj_mode == "MIP":
+                                img_data = np.max(vol_3d, axis=1)
+                            elif proj_mode == "MinIP":
+                                img_data = np.min(vol_3d, axis=1)
+                            else:
+                                img_data = vol_3d[:, slice_index - 1, :]
+                                
                             img_data = np.flipud(img_data)
                             try:
                                 z_thick = float(ref_ds.SliceThickness)
@@ -376,7 +411,14 @@ with tab2:
                                 slope = float(getattr(ref_ds, "RescaleSlope", 1.0))
                                 intercept = float(getattr(ref_ds, "RescaleIntercept", 0.0))
                                 vol_3d = vol_3d * slope + intercept
-                            img_data = vol_3d[:, :, slice_index - 1]
+                            
+                            if proj_mode == "MIP":
+                                img_data = np.max(vol_3d, axis=2)
+                            elif proj_mode == "MinIP":
+                                img_data = np.min(vol_3d, axis=2)
+                            else:
+                                img_data = vol_3d[:, :, slice_index - 1]
+                                
                             img_data = np.flipud(img_data)
                             try:
                                 z_thick = float(ref_ds.SliceThickness)
@@ -387,6 +429,7 @@ with tab2:
                         ds = datasets_list[total_slices // 2]
                 else:
                     view_plane = "Axial (Z)"
+                    proj_mode = "Single Slice"
                     max_slider = 1
                     slice_index = 1
                     ds = datasets_list[0]
@@ -401,23 +444,26 @@ with tab2:
             
             unit_label = "HU" if modality == "CT" else "Intensity"
             
-            header_ph.subheader(f"🖼️ Diagnostic Viewer ({view_plane.split()[0]} - Slice {slice_index})")
+            if total_slices > 1 and proj_mode != "Single Slice":
+                header_ph.subheader(f"🖼️ Diagnostic Viewer ({view_plane.split()[0]} - {proj_mode})")
+            else:
+                header_ph.subheader(f"🖼️ Diagnostic Viewer ({view_plane.split()[0]} - Slice {slice_index})")
             
             # --- IMAGE ADJUSTMENTS & FILTERS ---
             with quick_adj_ph.container():
                 st.markdown("##### Quick Adjustments & Filters")
                 q_col1, q_col2 = st.columns(2)
                 with q_col1:
-                    brightness_offset = st.slider("Brightness", -300.0, 300.0, 0.0, step=10.0, key=f"bright_{view_plane}_{slice_index}")
-                    gamma_val = st.slider("Gamma", 0.2, 3.0, 1.0, step=0.1, key=f"gamma_{view_plane}_{slice_index}")
+                    brightness_offset = st.slider("Brightness", -300.0, 300.0, 0.0, step=10.0, key=f"bright_{view_plane}_{slice_index}_{proj_mode}")
+                    gamma_val = st.slider("Gamma", 0.2, 3.0, 1.0, step=0.1, key=f"gamma_{view_plane}_{slice_index}_{proj_mode}")
                 with q_col2:
-                    contrast_factor = st.slider("Contrast", 0.2, 3.0, 1.0, step=0.1, key=f"contrast_{view_plane}_{slice_index}")
-                    sharpness_val = st.slider("Sharpness", 0.0, 3.0, 1.0, step=0.1, key=f"sharp_{view_plane}_{slice_index}")
+                    contrast_factor = st.slider("Contrast", 0.2, 3.0, 1.0, step=0.1, key=f"contrast_{view_plane}_{slice_index}_{proj_mode}")
+                    sharpness_val = st.slider("Sharpness", 0.0, 3.0, 1.0, step=0.1, key=f"sharp_{view_plane}_{slice_index}_{proj_mode}")
                 
                 selected_filter = st.selectbox(
                     "Advanced Spatial Filter", 
                     ["None", "Smoothing / Blur", "Unsharp Mask (Pro Edge)", "Median Filter (Noise Reduction)", "Histogram Equalization"],
-                    key=f"filt_{view_plane}_{slice_index}"
+                    key=f"filt_{view_plane}_{slice_index}_{proj_mode}"
                 )
             
             img_adjusted = img_data + brightness_offset
@@ -490,6 +536,8 @@ with tab2:
                     rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=1.0, edgecolor=rc["color"], facecolor='none')
                     ax.add_patch(rect)
                     ax.text(x1, y1 - 4, r_name, color=rc["color"], fontsize=8, weight='bold')
+                    
+                    area_mm2 = (r_size * pixel_spacing_val) ** 2
                 else:
                     r_radius = st.session_state.get(f"rad_{r_name}", 20)
                     y_grid, x_grid = np.ogrid[:img_h, :img_w]
@@ -499,11 +547,14 @@ with tab2:
                     circle = patches.Circle((pos_x, pos_y), r_radius, linewidth=1.0, edgecolor=rc["color"], facecolor='none')
                     ax.add_patch(circle)
                     ax.text(pos_x - r_radius, pos_y - r_radius - 4, r_name, color=rc["color"], fontsize=8, weight='bold')
+                    
+                    area_mm2 = np.pi * ((r_radius * pixel_spacing_val) ** 2)
                 
                 if roi_pixels.size > 0:
                     roi_summary_data.append({
                         "ROI Name": r_name,
                         "Shape": r_shape,
+                        "Area (mm²)": area_mm2,
                         "Mean": np.mean(roi_pixels),
                         "StdDev": np.std(roi_pixels),
                         "Min": np.min(roi_pixels),
@@ -511,8 +562,6 @@ with tab2:
                     })
 
             # --- DRAW MEASUREMENT TOOLS ---
-            pixel_spacing_val = st.session_state.get("calib_spacing", 1.0)
-            
             enable_grid = st.session_state.get("enable_grid", False)
             if enable_grid and pixel_spacing_val > 0:
                 px_per_cm = 10.0 / pixel_spacing_val
@@ -662,12 +711,6 @@ with tab2:
 
             # --- TOOL: DISTANCE RULER ---
             with st.expander("📏 Distance Ruler, Calibration & Pixel Probe", expanded=False):
-                auto_sp = 1.0
-                if hasattr(ds, "PixelSpacing") and ds.PixelSpacing:
-                    try:
-                        auto_sp = float(ds.PixelSpacing[0])
-                    except Exception:
-                        pass
                 st.markdown(f"📌 **Auto-detected Pixel Spacing:** `{auto_sp:.4f} mm/pixel`")
                 st.number_input("Resolution (mm/pixel) - Manual Override", min_value=0.001, value=auto_sp, format="%.4f", key="calib_spacing")
                 st.markdown("---")
@@ -710,7 +753,7 @@ with tab2:
                 st.markdown("Measure anatomical or geometric angles ($\theta^\circ$) using 3 points:")
                 st.checkbox("📐 Enable Goniometer", key="enable_angle")
                 if st.session_state.get("enable_angle", False):
-                    st.markdown("**1. Vertex Point:**")
+                    st.markdown("**1. Vertex Point (Κορυφή):**")
                     col_v1, col_v2 = st.columns(2)
                     with col_v1: st.number_input("Vertex X", 0, img_w, img_w // 2, key="ang_vx")
                     with col_v2: st.number_input("Vertex Y", 0, img_h, img_h // 2, key="ang_vy")
@@ -1160,13 +1203,13 @@ with tab2:
 
             # --- TOOL: DICOM HEADER EDITOR ---
             with st.expander("✏️ DICOM Header Editor & Fixer", expanded=False):
-                st.markdown("Modify core metadata tags and download the updated DICOM slice:")
+                st.markdown("Modify core metadata tags and download the updated DICOM file:")
                 new_pname = st.text_input("Patient Name", value=str(getattr(ds, "PatientName", "")))
                 new_pid = st.text_input("Patient ID", value=str(getattr(ds, "PatientID", "")))
                 new_study = st.text_input("Study Description", value=str(getattr(ds, "StudyDescription", "")))
                 new_inst = st.text_input("Institution Name", value=str(getattr(ds, "InstitutionName", "")))
                 
-                if st.button("💾 Apply Edits & Download DICOM Slice"):
+                if st.button("💾 Apply Edits & Download DICOM"):
                     ds.PatientName = new_pname
                     ds.PatientID = new_pid
                     ds.StudyDescription = new_study
@@ -1176,13 +1219,14 @@ with tab2:
                     ds.save_as(edited_bytes)
                     edited_bytes.seek(0)
                     st.success("Header updated successfully!")
-                    st.download_button("📥 Download Edited .dcm", edited_bytes, file_name=f"edited_slice_{slice_index}.dcm", mime="application/octet-stream")
+                    st.download_button("📥 Download Edited .dcm", edited_bytes, file_name="edited_file.dcm", mime="application/octet-stream")
 
             # --- MEASUREMENTS TABLE ---
             if roi_summary_data:
                 st.subheader("📋 Measurements Table")
                 df_display = pd.DataFrame([{
                     "ROI": d["ROI Name"],
+                    "Area (mm²)": f"{d['Area (mm²)']:.1f}",
                     "Mean": f"{d['Mean']:.2f}",
                     "StdDev": f"{d['StdDev']:.2f}",
                     "Min": f"{d['Min']:.1f}",
@@ -1193,7 +1237,7 @@ with tab2:
         # --- PLOT: SPATIAL RESOLUTION (ESF/MTF) ---
         if st.session_state.get("enable_line_profile", False):
             st.markdown("---")
-            st.subheader(f"📈 Spatial Resolution Analysis: ESF & MTF (Slice {slice_index})")
+            st.subheader(f"📈 Spatial Resolution Analysis: ESF & MTF")
             
             lx1 = st.session_state.get("lp_x1", img_w // 4)
             ly1 = st.session_state.get("lp_y1", img_h // 2)
@@ -1210,9 +1254,9 @@ with tab2:
                 
                 fig_esf, ax_esf = plt.subplots(figsize=(10, 3.2))
                 ax_esf.plot(distances_mm, profile_values, color='crimson', linewidth=2)
-                ax_esf.set_title(f"Edge Spread Function (ESF) — {view_plane.split()[0]} Plane", fontsize=11, weight='bold')
+                ax_esf.set_title(f"Edge Spread Function (ESF) — {modality} ({unit_label})", fontsize=11, weight='bold')
                 ax_esf.set_xlabel("Distance along edge (mm)", fontsize=10)
-                ax_esf.set_ylabel(f"Pixel Value ({unit_label})", fontsize=10)
+                ax_esf.set_ylabel(f"Pixel Value / Unit ({unit_label})", fontsize=10)
                 ax_esf.grid(True, linestyle='--', alpha=0.6)
                 st.pyplot(fig_esf)
                 
@@ -1260,7 +1304,6 @@ with tab2:
                 info = {
                     "Modality": modality,
                     "Reconstruction Plane": view_plane.split()[0],
-                    "Slice Number": f"{slice_index} of {max_slider if total_slices > 1 else 1}",
                     "Patient ID": getattr(ds, "PatientID", "N/A"),
                     "Study Description": getattr(ds, "StudyDescription", "N/A"),
                     "Manufacturer": getattr(ds, "Manufacturer", "N/A"),
@@ -1269,7 +1312,9 @@ with tab2:
                 st.table(pd.DataFrame(list(info.items()), columns=["Parameter", "Value"]))
 
         with col_meta2:
-            hist_title = f"Hounsfield Units (HU) — Slice {slice_index}" if modality == "CT" else f"Pixel Intensity — Slice {slice_index}"
+            hist_title = f"Hounsfield Units (HU) Distribution" if modality == "CT" else f"Pixel Intensity Distribution"
+            xlabel_text = f"Hounsfield Units ({unit_label})" if modality == "CT" else f"Pixel Intensity ({unit_label})"
+            
             with st.expander(f"📊 Scientific Image Statistics & Histogram"):
                 st.write(f"- **Plane Mean:** {np.mean(img_data):.2f} {unit_label}")
                 st.write(f"- **Plane StdDev:** {np.std(img_data):.2f}")
@@ -1277,7 +1322,7 @@ with tab2:
                 fig_hist, ax_hist = plt.subplots(figsize=(4.5, 2.5))
                 ax_hist.hist(img_data.ravel(), bins=50, color='skyblue', edgecolor='black')
                 ax_hist.set_title(hist_title, fontsize=10)
-                ax_hist.set_xlabel(unit_label, fontsize=9)
+                ax_hist.set_xlabel(xlabel_text, fontsize=9)
                 ax_hist.set_ylabel("Frequency", fontsize=9)
                 
                 formatter = ticker.ScalarFormatter(useMathText=True)
