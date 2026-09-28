@@ -1011,6 +1011,32 @@ with tab2:
                     else:
                         st.warning("Enable the **Center ROI** (as Square) from the Multi-ROI Analysis.")
 
+                # --- 8A.5 DYNAMIC QC: SSDE CALCULATOR (AAPM TG-204) ---
+                with st.expander("🧮 SSDE Calculator (AAPM TG-204/220)", expanded=False):
+                    st.markdown("Calculate Size-Specific Dose Estimate (SSDE) using patient dimensions.")
+                    col_ssde1, col_ssde2 = st.columns(2)
+                    with col_ssde1: ap_dim = st.number_input("AP Dimension (cm)", min_value=1.0, value=20.0, step=0.5)
+                    with col_ssde2: lat_dim = st.number_input("LAT Dimension (cm)", min_value=1.0, value=25.0, step=0.5)
+                    
+                    ctdi_vol = float(getattr(ds, "CTDIvol", 0.0))
+                    col_ssde3, col_ssde4 = st.columns(2)
+                    with col_ssde3: ctdi_input = st.number_input("CTDIvol (mGy)", min_value=0.0, value=ctdi_vol, step=1.0)
+                    with col_ssde4: phantom_type = st.selectbox("Reference Phantom", ["32 cm (Body)", "16 cm (Head)"])
+                    
+                    if st.button("🧮 Calculate SSDE"):
+                        eff_diam = np.sqrt(ap_dim * lat_dim)
+                        if "32" in phantom_type:
+                            factor = 3.704369 * np.exp(-0.03671937 * eff_diam)
+                        else:
+                            factor = 1.874799 * np.exp(-0.0387131 * eff_diam)
+                            
+                        ssde = ctdi_input * factor
+                        
+                        st.markdown("---")
+                        st.write(f"- **Effective Diameter ($D_{{eff}}$):** `{eff_diam:.1f} cm`")
+                        st.write(f"- **Conversion Factor ($f$):** `{factor:.3f}`")
+                        st.success(f"🏆 **Calculated SSDE:** `{ssde:.2f} mGy`")
+
             # --- TOOL: FLAT-FIELD UNIFORMITY QC ---
             if modality in ["DX", "CR", "MG"]:
                 with st.expander("🎯 Flat-Field Uniformity & Bad Pixel Detector", expanded=False):
@@ -1360,6 +1386,21 @@ with tab3:
     )
 
     batch_zip = st.file_uploader(f"Upload ZIP Archive for {modality_category}", type=["zip"], key="batch_zip_custom")
+    
+    st.markdown("---")
+    st.subheader("🚦 DRL Traffic Light Alerts")
+    enable_alerts = st.checkbox("Enable DRL Alerts in Report")
+    
+    alert_col = None
+    alert_thresh = 0.0
+    
+    if enable_alerts:
+        col_al1, col_al2 = st.columns(2)
+        with col_al1:
+            alert_col = st.selectbox("Select Dose Metric to Monitor", 
+                ["CTDIvol (mGy)", "Scan DLP (mGy*cm)", "Total DLP (mGy*cm)", "MGD (mGy)", "DAP (Gy*cm2)", "DAP / KAP (Gy*cm2)", "Entrance Dose (mGy)", "Cumulative Air Kerma (mGy)"])
+        with col_al2:
+            alert_thresh = st.number_input("Alert Threshold Limit", min_value=0.01, value=10.0, step=1.0)
 
     if batch_zip is not None:
         if st.button("🚀 Process & Generate DRL Report"):
@@ -1614,7 +1655,18 @@ with tab3:
                 if summary_data:
                     df_summary = pd.DataFrame(summary_data)
                     st.success(f"✅ Processing complete! Aggregated {len(summary_data)} records for {modality_category}.")
-                    st.dataframe(df_summary, use_container_width=True)
+                    
+                    if enable_alerts and alert_col in df_summary.columns:
+                        def highlight_alerts(val):
+                            try:
+                                if val != "N/A" and val != "-" and float(val) > alert_thresh:
+                                    return 'background-color: #ff9999; color: black;'
+                            except Exception:
+                                pass
+                            return ''
+                        st.dataframe(df_summary.style.map(highlight_alerts, subset=[alert_col]), use_container_width=True)
+                    else:
+                        st.dataframe(df_summary, use_container_width=True)
                     
                     csv_bytes = df_summary.to_csv(index=False).encode('utf-8')
                     st.download_button(
@@ -1674,7 +1726,7 @@ with tab4:
                     val_ref = getattr(ds_ref, tag_name, "N/A")
                     val_eval = getattr(ds_eval, tag_name, "N/A")
 
-                    # Formatting logic for floats and MultiValues (like Pixel Spacing)
+                    # Formatting logic for floats and MultiValues
                     if isinstance(val_ref, (pydicom.multival.MultiValue, list)):
                         val_ref = str([round(float(v), 3) if isinstance(v, (float, int)) else v for v in val_ref])
                     elif isinstance(val_ref, float):
@@ -1704,7 +1756,6 @@ with tab4:
                     df_audit = pd.DataFrame(audit_results)
                     st.subheader(f"Audit Results: {mod_ref} Protocol")
                     
-                    # Highlight deviations in red and matches in green
                     def color_status(val):
                         color = '#a8d08d' if 'MATCH' in val else '#ff9999'
                         return f'background-color: {color}; color: black;'
@@ -1726,6 +1777,38 @@ with tab4:
                             st.error("Significant Protocol Deviations Detected!")
                 else:
                     st.info("No comparative dosimetric/geometric tags found.")
+
+                st.markdown("---")
+                st.subheader("🕵️ Deep Metadata Comparison")
+                st.markdown("Scan all DICOM tags to find hidden parameter mismatches (e.g., software versions, obscure filters).")
+                if st.button("🔍 Run Full Header Diff"):
+                    diff_results = []
+                    ref_tags = {str(elem.tag): elem for elem in ds_ref if elem.tag != 0x7fe00010}
+                    eval_tags = {str(elem.tag): elem for elem in ds_eval if elem.tag != 0x7fe00010}
+                    
+                    all_tag_keys = set(ref_tags.keys()).union(set(eval_tags.keys()))
+                    
+                    for t_key in all_tag_keys:
+                        ref_elem = ref_tags.get(t_key)
+                        eval_elem = eval_tags.get(t_key)
+                        
+                        ref_val = str(ref_elem.value)[:100] if ref_elem else "MISSING"
+                        eval_val = str(eval_elem.value)[:100] if eval_elem else "MISSING"
+                        keyword = ref_elem.keyword if ref_elem else (eval_elem.keyword if eval_elem else "Unknown")
+                        
+                        if ref_val != eval_val:
+                            diff_results.append({
+                                "Tag ID": t_key,
+                                "Keyword": keyword,
+                                "Reference (Gold)": ref_val,
+                                "Clinical Scan": eval_val
+                            })
+                            
+                    if diff_results:
+                        st.warning(f"Found {len(diff_results)} differing tags between the two files (excluding Pixel Data).")
+                        st.dataframe(pd.DataFrame(diff_results), use_container_width=True)
+                    else:
+                        st.success("✅ No hidden differences found in metadata!")
 
             except Exception as e:
                 st.error(f"Error during protocol comparison: {e}")
