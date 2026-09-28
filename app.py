@@ -273,7 +273,8 @@ with tab2:
                         content = z_in.read(f_name)
                         try:
                             ds_temp = pydicom.dcmread(io.BytesIO(content))
-                            if hasattr(ds_temp, "pixel_array"):
+                            # SAFE CHECK: Verify PixelData exists before appending
+                            if 'PixelData' in ds_temp:
                                 temp_datasets.append(ds_temp)
                         except Exception:
                             continue
@@ -292,10 +293,14 @@ with tab2:
                     datasets_list = temp_datasets
             else:
                 ds_single = pydicom.dcmread(uploaded_input)
-                datasets_list = [ds_single]
+                # SAFE CHECK for single file
+                if 'PixelData' in ds_single:
+                    datasets_list = [ds_single]
+                else:
+                    st.error("⚠️ The uploaded DICOM file does not contain image data (it might be a Structured Report - RDSR or Dose Summary).")
         except Exception as e:
             st.error(f"Error reading input: {e}")
-
+            
     # --- MODALITY & METADATA EXTRACTION ---
     if len(datasets_list) > 0:
         total_slices = len(datasets_list)
