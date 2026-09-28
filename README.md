@@ -33,7 +33,7 @@ A lightweight, open-source web application built with Python and Streamlit, desi
   * Upload your department's "Gold Standard" reference DICOM alongside a clinical scan.
   * Automatically cross-checks core geometric and dosimetric tags (kVp, mAs, Slice Thickness, CTDIvol, Pixel Spacing, etc.).
   * Generates a color-coded Pass/Fail compliance table and calculates an overall **Protocol Compliance Score (%)** to detect unauthorized protocol deviations.
-* **Deep Metadata Diff:** Executes a comprehensive scan of all hidden DICOM tags to uncover obscure parameter mismatches (software versions, proprietary filters, windowing) beyond the core geometric/dosimetric tags.
+  * Deep Metadata Diff: Executes a comprehensive scan of all hidden DICOM tags to uncover obscure parameter mismatches (software versions, proprietary filters, windowing) beyond the core geometric/dosimetric tags.
 ## 🛡️ Privacy & Security
 All processing is performed locally in your session environment. No patient health information (PHI) is transmitted, stored, or shared externally.
 
