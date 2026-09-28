@@ -273,10 +273,11 @@ with tab2:
                         content = z_in.read(f_name)
                         try:
                             ds_temp = pydicom.dcmread(io.BytesIO(content))
-                            # SAFE CHECK: Verify PixelData exists before appending
-                            if 'PixelData' in ds_temp:
-                                temp_datasets.append(ds_temp)
+                            # FORCE CHECK: Test if pixel_array can be decoded successfully
+                            _ = ds_temp.pixel_array
+                            temp_datasets.append(ds_temp)
                         except Exception:
+                            # Skip files that lack valid image data (e.g., RDSR, Dose Reports)
                             continue
                     
                     # --- 3D VOLUME SORTING (BY Z-AXIS) ---
@@ -293,11 +294,12 @@ with tab2:
                     datasets_list = temp_datasets
             else:
                 ds_single = pydicom.dcmread(uploaded_input)
-                # SAFE CHECK for single file
-                if 'PixelData' in ds_single:
+                # FORCE CHECK for single file
+                try:
+                    _ = ds_single.pixel_array
                     datasets_list = [ds_single]
-                else:
-                    st.error("⚠️ The uploaded DICOM file does not contain image data (it might be a Structured Report - RDSR or Dose Summary).")
+                except Exception:
+                    st.error("⚠️ The uploaded DICOM file does not contain valid image data or lacks required metadata (e.g., 'Bits Allocated'). It might be a Structured Report (RDSR) or a Dose Summary.")
         except Exception as e:
             st.error(f"Error reading input: {e}")
             
