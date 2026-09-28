@@ -14,9 +14,9 @@ A lightweight, open-source web application built with Python and Streamlit, desi
   * **Modality-Aware Processing:** Automatically detects modalities (CT with Hounsfield Units, Radiography/Mammography with Raw Intensities).
   * **3D Volume Projections:** Dynamic Maximum (MIP) and Minimum (MinIP) Intensity Projections across Axial, Coronal, and Sagittal planes for CT volumes.
   * **Image Enhancement:** Brightness, Contrast, Gamma, Sharpness, Unsharp Mask, Median Filter, and Histogram Equalization.
-  * **Multi-ROI Analysis:** Interactive coordinate and shape adjustments (Circle/Square) for Center, Top, Bottom, Left, and Right ROIs, including automatic physical area ($mm^2$) calculations.
-  * **Spatial Resolution (ESF & MTF):** Line Intensity Profiling extracting Edge Spread Function and Modulation Transfer Function with automatic $MTF_{50}$ and $MTF_{10}$ metrics.
-  * **Quality Control Checks:** Real-time SNR, CNR, percentage field uniformity, CT water calibration ($0 \pm 4\text{ HU}$), Linearity & Sensitometry ($\rho_e$), Slice Thickness (FWHM), 2D Noise Power Spectrum (NPS), Light/Radiation Field Alignment (DX/CR), and 1cm Geometric Distortion Grid.
+  * **Multi-ROI Analysis:** Interactive coordinate and shape adjustments (Circle/Square) for Center, Top, Bottom, Left, and Right ROIs, including automatic physical area (mm^2) calculations.
+  * **Spatial Resolution (ESF & MTF):** Line Intensity Profiling extracting Edge Spread Function and Modulation Transfer Function with automatic MTF_50 and MTF_10 metrics.
+  * **Quality Control Checks:** Real-time SNR, CNR, percentage field uniformity, CT water calibration, Linearity & Sensitometry ($\rho_e$), Slice Thickness (FWHM), 2D Noise Power Spectrum (NPS), Light/Radiation Field Alignment (DX/CR), and 1cm Geometric Distortion Grid.
   * **DICOM Editor:** In-place header editing and download of updated `.dcm` files.
 
 * **📊 Batch CSV Report Generator (DRLs):** 
