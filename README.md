@@ -20,7 +20,7 @@ A lightweight, open-source web application built with Python and Streamlit, desi
   * **DICOM Editor:** In-place header editing and download of updated `.dcm` files.
 
 * **📊 Batch CSV Report Generator (DRLs):** 
-  * Aggregate multiple DICOM series per patient and export comprehensive dosimetric summary reports as CSV files for Diagnostic Reference Levels (DRLs).
+  Aggregate multiple DICOM series per patient and export comprehensive dosimetric summary reports as CSV files for Diagnostic Reference Levels (DRLs).
   * **Radiography (DX/CR):** kVp, mAs, SID, Field Size, Entrance Dose, DAP/KAP.
   * **Mammography (MG):** MGD, ESAK, breast thickness, compression force, target/filter, projections.
   * **Computed Tomography (CT):** Z-coverage, CTDIvol, Scan DLP, Total DLP, Scan Length, Head/Body categorization.
